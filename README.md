@@ -20,6 +20,7 @@ OpenCode plugin integrating [MemPalace](https://github.com/milla-jovovich/mempal
 | **Background mining** | ✅ Idle/threshold/exit triggers | ❌ None or manual |
 | **MCP Tools** | ✅ 19 native tools | ❌ CLI only |
 | **Auto-update** | ✅ Built-in | ❌ Manual |
+| **Curated session sync** | ✅ Optional preview + ingest | ❌ Not available |
 
 ---
 
@@ -95,21 +96,65 @@ Full MemPalace integration without CLI:
 
 Checks NPM registry on session start, auto-installs updates in background. Never miss improvements.
 
+### 7. **Opt-In Curated Session Sync**
+
+Live behavior stays the same in v1: MCP registration, PALACE protocol injection, wake-up context, auto-mining, compaction memory injection, diary check tooling, and auto-update notifications all continue to run as before.
+
+Curated OpenCode session sync is additive and manual. It is disabled by default (`sessionSync.enabled: false`) and does not automatically ingest historical sessions. When enabled, it lets you preview selected OpenCode session candidates, inspect their target wing/room/reason, and ingest only the candidates you confirm.
+
 ---
 
 ## 📋 Configuration
+
+### Minimal plugin config
+
+```jsonc
+// ~/.config/opencode/opencode.jsonc
+{
+  "plugin": ["opencode-mempalace"]
+}
+```
+
+### Enable curated session sync
 
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 {
   "plugin": [
     ["opencode-mempalace", {
-      "threshold": 20,        // Messages before auto-mining (default: 15)
-      "palacePath": "/custom/path",  // Custom palace directory
-      "disableAutoLoad": false,       // Skip wakeUp injection
-      "disableAutoMining": false,    // Disable background mining
-      "disableAutoUpdate": false,     // Disable version checks
-      "disableMcp": false            // Skip MCP registration
+      "threshold": 20,
+      "palacePath": "/custom/path",
+      "disableAutoLoad": false,
+      "disableAutoMining": false,
+      "disableAutoUpdate": false,
+      "disableMcp": false,
+      "sessionSync": {
+        "enabled": true,
+        "requirePreview": true,
+        "discoveryMode": "auto",
+        "limitSessions": 3,
+        "limitCandidates": 50,
+        "maxCandidateBytes": 4000,
+        "projectWingStrategy": "plugin",
+        "globalWing": "opencode_global"
+      }
+    }]
+  ]
+}
+```
+
+### Skill-compatible wing naming
+
+Use this if you want curated session sync to write project memories with the same wing naming used by the MemPalace session-memory skill:
+
+```jsonc
+{
+  "plugin": [
+    ["opencode-mempalace", {
+      "sessionSync": {
+        "enabled": true,
+        "projectWingStrategy": "skill"
+      }
     }]
   ]
 }
@@ -127,6 +172,62 @@ Checks NPM registry on session start, auto-installs updates in background. Never
 | `palacePath` | `string` | `~/.mempalace/palace` | Override palace directory |
 | `disableAutoMining` | `boolean` | `false` | Disable background mining |
 | `threshold` | `number` | `15` | Messages before auto-mining |
+| `sessionSync.enabled` | `boolean` | `false` | Enable manual curated OpenCode session sync tools |
+| `sessionSync.requirePreview` | `boolean` | `true` | Require ingest to use a previous preview result |
+| `sessionSync.discoveryMode` | `"auto"` | `"auto"` | Discover OpenCode session files automatically |
+| `sessionSync.limitSessions` | `number` | `3` | Maximum recent sessions to inspect during preview |
+| `sessionSync.limitCandidates` | `number` | `50` | Maximum candidates returned by preview |
+| `sessionSync.maxCandidateBytes` | `number` | `4000` | Maximum bytes stored per candidate preview |
+| `sessionSync.maxJsonFileBytes` | `number` | `5000000` | Maximum JSON session file size read during fallback discovery |
+| `sessionSync.maxMessagesPerSession` | `number` | `1000` | Maximum messages read from one session |
+| `sessionSync.maxPartsPerMessage` | `number` | `200` | Maximum OpenCode text parts read from one message |
+| `sessionSync.maxRawExchangeBytes` | `number` | `100000` | Maximum raw normalized exchange size before preview candidate construction |
+| `sessionSync.projectWingStrategy` | `"plugin" | "skill" | "custom"` | `"plugin"` | Project wing naming: `plugin` → existing plugin-style `wing_<project-basename>` (for example `wing_opencode-mempalace`), `skill` → `opencode_mempalace`, `custom` → configured `projectWing` |
+| `sessionSync.projectWing` | `string` | unset | Required only when `projectWingStrategy` is `custom` |
+| `sessionSync.globalWing` | `string` | `"opencode_global"` | Wing for global/non-project session memories |
+
+---
+
+## 🔄 Live Mining vs Curated Session Sync
+
+The plugin has two memory paths:
+
+| Path | Default | When it runs | What it does |
+|---|---:|---|---|
+| **Live mining** | On | During the current OpenCode session through threshold, idle, delete, exit, and compaction hooks | Keeps current project context fresh automatically. This remains the primary memory path. |
+| **Curated session sync** | Off | Only when you enable `sessionSync.enabled` and call the sync tools manually | Finds candidate memories from OpenCode session files, shows a preview, and ingests confirmed candidates. |
+
+Curated sync does not replace `mempalace mine` or live auto-mining. It is intended for selective recovery or cleanup of useful session details after you inspect them.
+
+### Curated sync workflow
+
+1. Enable `sessionSync.enabled` in the plugin config.
+2. Start OpenCode and run `mempalace_session_sync_status` to confirm availability and defaults.
+3. Run `mempalace_session_sync_preview` with optional filters such as `sessionId` or lower limits. The tool uses the current OpenCode workspace as the project directory; wing names come from plugin config.
+4. Inspect each candidate's content, target wing, target room, and routing reason.
+5. Run `mempalace_session_sync_ingest` with the `previewId`, optional `candidateIds`, and `confirm: true`.
+6. Rerun the same ingest request if needed; already-ingested candidates should report as skipped.
+
+### Curated sync tool reference
+
+`mempalace_session_sync_status` is always available. `mempalace_session_sync_preview` and `mempalace_session_sync_ingest` are available only when `sessionSync.enabled` is `true`.
+
+| Tool | Args | Notes |
+|---|---|---|
+| `mempalace_session_sync_status` | none | Shows whether curated sync is enabled and which defaults are active. |
+| `mempalace_session_sync_preview` | `sessionId?`, `limitSessions?`, `limitCandidates?` | Discovers candidate memories from the current OpenCode workspace without writing them. Preview output is intentionally bounded by limits, redacts common secret patterns, and uses configured wings. |
+| `mempalace_session_sync_ingest` | `previewId`, `candidateIds?`, `confirm: true` | Writes the selected preview candidates. `confirm` must be `true`. If `candidateIds` is omitted, ingest uses all candidates from the preview. |
+
+### Limitations
+
+- Curated sync is manual only in v1; enabling it does not start automatic historical ingestion.
+- It is not a bulk historical backfill by default. The defaults inspect up to 3 sessions and 50 candidates.
+- SQLite discovery is project-strict when a workspace is available; sessions from other directories are not used as fallback preview input.
+- OpenCode session file formats may vary, so discovery and normalization are best-effort.
+- Preview output is bounded by `limitCandidates`, `maxCandidateBytes`, JSON/message/part caps, and raw exchange size; long or oversized inputs may be truncated or skipped with warnings.
+- Common secret forms (Bearer tokens, GitHub/OpenAI/AWS keys, private keys, and env-style secret assignments) are redacted in preview content before ingest.
+- Candidate routing is deterministic and does not use LLM classification.
+- Curated sync does not replace live mining or direct MemPalace mining workflows.
 
 ---
 

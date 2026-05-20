@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_SESSION_SYNC_CONFIG, SessionSyncConfigSchema } from "../session-sync/contracts.js";
 
 /**
  * MemPalace Plugin Configuration Schemas
@@ -35,6 +36,9 @@ export const MempalacePluginOptionsSchema = z.object({
   
   /** Number of chat messages per session before auto-mining is triggered */
   threshold: z.number().int().positive().default(15),
+
+  /** Curated OpenCode session sync into MemPalace. Disabled by default. */
+  sessionSync: SessionSyncConfigSchema.optional().default(DEFAULT_SESSION_SYNC_CONFIG),
 });
 
 // Type inference from schema

@@ -78,3 +78,8 @@ export class StateManager {
     this.miningLocks.clear();
   }
 }
+
+/** Reset module-level state for test setup. StateManager instances hold their own state. */
+export function _resetForTesting(): void {
+  // No module-level state to reset.
+}

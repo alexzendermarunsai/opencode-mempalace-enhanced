@@ -14,6 +14,7 @@ import { createHooks } from "./hooks/index.js";
 import { createPluginDispose } from "./features/plugin-dispose.js";
 import { createUpdateNotification } from "./features/update-notification.js";
 import { PALACE_PROTOCOL, MAX_MEMORY_LENGTH, STATUS_MESSAGES } from "./shared/protocol.js";
+import { IngestArgsSchema, ingestSessionSync, previewSessionSync, statusSessionSync } from "./session-sync/index.js";
 
 const require = createRequire(import.meta.url);
 const PLUGIN_VERSION: string = require("../package.json").version;
@@ -57,6 +58,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
   const miningThreshold = opts.threshold;
   const autoMiningEnabled = !opts.disableAutoMining;
   const stateManager = new StateManager(miningThreshold);
+  const sessionSyncConfig = opts.palacePath ? { ...opts.sessionSync, palacePath: opts.palacePath } : opts.sessionSync;
 
   // --- 3-state initialization: empty, initializing, ready ---
   let initializationDone = false;
@@ -184,6 +186,33 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
           return "⚠️ No diary entry written yet for this session. Call mcp_mempalace_mempalace_diary_write to save session learnings before they are lost.";
         },
       }),
+      mempalace_session_sync_status: tool({
+        description: "Show curated OpenCode session sync status. Preview and ingest are disabled unless sessionSync.enabled=true.",
+        args: {},
+        execute: async () => JSON.stringify(statusSessionSync(sessionSyncConfig), null, 2),
+      }),
+      ...(sessionSyncConfig.enabled
+        ? {
+            mempalace_session_sync_preview: tool({
+              description: "Preview deterministic curated OpenCode session memories that would be written to MemPalace. Does not mark records processed.",
+              args: {
+                sessionId: tool.schema.union([tool.schema.string().min(1), tool.schema.literal("")]).optional(),
+                limitSessions: tool.schema.number().int().positive().optional(),
+                limitCandidates: tool.schema.number().int().positive().optional(),
+              },
+              execute: async (args) => JSON.stringify(await previewSessionSync(sessionSyncConfig, workspaceDir, args), null, 2),
+            }),
+            mempalace_session_sync_ingest: tool({
+              description: "Ingest the latest previewed curated OpenCode session memories into MemPalace. Respects preview-required and idempotent processed state.",
+              args: {
+                previewId: tool.schema.string(),
+                candidateIds: tool.schema.array(tool.schema.string()).optional(),
+                confirm: tool.schema.literal(true),
+              },
+              execute: async (args) => JSON.stringify(await ingestSessionSync(sessionSyncConfig, workspaceDir, IngestArgsSchema.parse(args)), null, 2),
+            }),
+          }
+        : {}),
     },
   };
 };
