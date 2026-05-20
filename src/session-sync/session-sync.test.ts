@@ -7,10 +7,10 @@ import plugin from "../index.js";
 import { parsePluginOptions } from "../config/index.js";
 import type { RawSession } from "./contracts.js";
 import { DEFAULT_SESSION_SYNC_CONFIG, PreviewArgsSchema } from "./contracts.js";
-import { discoverSessions } from "./discovery.js";
+import { discoverSessions, discoverSessionsWithWarnings } from "./discovery.js";
 import { candidatesFromSessions } from "./export.js";
 import { isTransientNoise } from "./filters.js";
-import { ingestCandidates, parseMemPalaceToolResult } from "./ingest.js";
+import { ingestCandidates, memPalaceWriterEnv, parseMemPalaceToolResult } from "./ingest.js";
 import { previewSessionSync, ingestSessionSync } from "./index.js";
 import { buildSessionMemoryText, extractFinalAssistantAnswer, normalizeSession, normalizeText, stableKey, stripSystemContext } from "./normalize.js";
 import { routeCandidate, projectWingFor } from "./routing.js";
@@ -36,14 +36,18 @@ function createOpenCodeSqliteFixture(dbPath: string, projectDir: string): void {
   db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
   db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
   db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
-  db.run('insert into "session" (id, directory, title, time_updated) values (?, ?, ?, ?)', ["ses_live", projectDir, "Live project", 300]);
-  db.run("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)", ["msg_user", "ses_live", 100, 100, JSON.stringify({ role: "user" })]);
-  db.run("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)", ["msg_assistant", "ses_live", 200, 200, JSON.stringify({ role: "assistant" })]);
-  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part_user_text", "msg_user", "ses_live", 101, JSON.stringify({ type: "text", text: "Please fix sqlite discovery for this durable project memory." })]);
-  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part_user_tool", "msg_user", "ses_live", 102, JSON.stringify({ type: "tool", text: "TOOL NOISE" })]);
-  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part_assistant_reasoning", "msg_assistant", "ses_live", 201, JSON.stringify({ type: "reasoning", text: "PRIVATE REASONING" })]);
-  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part_assistant_text", "msg_assistant", "ses_live", 202, JSON.stringify({ type: "text", text: "SQLite discovery now joins text parts and ignores tool traces." })]);
+  insertOpenCodeSqliteSession(db, "ses_live", projectDir, "Live project", 300, "Please fix sqlite discovery for this durable project memory.", "SQLite discovery now joins text parts and ignores tool traces.");
+  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part_user_tool", "msg_user_ses_live", "ses_live", 102, JSON.stringify({ type: "tool", text: "TOOL NOISE" })]);
+  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part_assistant_reasoning", "msg_assistant_ses_live", "ses_live", 201, JSON.stringify({ type: "reasoning", text: "PRIVATE REASONING" })]);
   db.close();
+}
+
+function insertOpenCodeSqliteSession(db: Database, id: string, projectDir: string, title: string, updatedAt: number, userText: string, assistantText: string): void {
+  db.run('insert into "session" (id, directory, title, time_updated) values (?, ?, ?, ?)', [id, projectDir, title, updatedAt]);
+  db.run("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)", [`msg_user_${id}`, id, 100, 100, JSON.stringify({ role: "user" })]);
+  db.run("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)", [`msg_assistant_${id}`, id, 200, 200, JSON.stringify({ role: "assistant" })]);
+  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", [`part_user_text_${id}`, `msg_user_${id}`, id, 101, JSON.stringify({ type: "text", text: userText })]);
+  db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", [`part_assistant_text_${id}`, `msg_assistant_${id}`, id, 202, JSON.stringify({ type: "text", text: assistantText })]);
 }
 
 describe("session sync", () => {
@@ -63,11 +67,16 @@ describe("session sync", () => {
   it("strips MemPalace system context from user text", () => {
     const withContext = "[SYSTEM \u2014 MemPalace Context Load]\n[MemPalace]: The memory system is being built asynchronously...\n\ndone restart , lets test";
     expect(stripSystemContext(withContext)).toBe("done restart , lets test");
+    expect(stripSystemContext("[SYSTEM - MemPalace Context Load]\n[MemPalace]: loaded ok")).toBe("");
+    const multiLine = "[SYSTEM \u2014 MemPalace Context Load]\n[MemPalace]: Loaded project context\nProject context:\n- prior durable memory\n- another historical line\n\nPlease preserve this actual request.";
+    expect(stripSystemContext(multiLine)).toBe("Please preserve this actual request.");
+    const withBlankLines = "before\n\n[SYSTEM - MemPalace Context Load]\nStatus: context loaded\n\n\ncontinue after blank";
+    expect(stripSystemContext(withBlankLines)).toBe("before\n\ncontinue after blank");
     const withoutContext = "check opencode.json , suggest the best way";
     expect(stripSystemContext(withoutContext)).toBe(withoutContext);
   });
 
-    it("supports project wing strategies and requires custom wing config", () => {
+  it("supports project wing strategies and requires custom wing config", () => {
     expect(projectWingFor({ ...DEFAULT_SESSION_SYNC_CONFIG, projectWingStrategy: "plugin" }, "/x/opencode-mempalace")).toBe("wing_opencode-mempalace");
     expect(projectWingFor({ ...DEFAULT_SESSION_SYNC_CONFIG, projectWingStrategy: "skill" }, "/x/opencode-mempalace")).toBe("opencode_mempalace");
     expect(projectWingFor({ ...DEFAULT_SESSION_SYNC_CONFIG, projectWingStrategy: "custom", projectWing: "wing_custom" }, "/x/opencode-mempalace")).toBe("wing_custom");
@@ -145,6 +154,47 @@ describe("session sync", () => {
     expect(exported.candidates[0].content).not.toContain("second durable");
   });
 
+  it("redacts common secret patterns in preview candidates and warns", () => {
+    const state = emptyState();
+    const privateKey = "-----BEGIN PRIVATE KEY-----\nabc123secret\n-----END PRIVATE KEY-----";
+    const session: RawSession = {
+      id: "secrets",
+      sourceFile: "/tmp/secrets.json",
+      projectDir: "/tmp/project",
+      messages: [
+        { role: "user", content: `Please implement durable secret handling. Authorization: Bearer abcdefghijklmnopqrstuvwxyz ghp_abcdefghijklmnopqrstuvwxyz123456 sk-abcdefghijklmnopqrstuvwxyz123456 AKIAABCDEFGHIJKLMNOP SECRET_TOKEN=supersecret ${privateKey}` },
+        { role: "assistant", content: "Implemented durable redaction so previews remain useful without exposing credentials." },
+      ],
+    };
+    const exported = candidatesFromSessions([session], DEFAULT_SESSION_SYNC_CONFIG, state, "/tmp/project");
+    expect(exported.candidates.length).toBe(1);
+    const content = exported.candidates[0].content;
+    expect(content).toContain("[REDACTED");
+    expect(content).not.toContain("abcdefghijklmnopqrstuvwxyz123456");
+    expect(content).not.toContain("supersecret");
+    expect(content).not.toContain("abc123secret");
+    expect(exported.warnings.join("\n")).toContain("Redacted");
+  });
+
+  it("redacts before truncating candidate content", () => {
+    const state = emptyState();
+    const privateKey = "-----BEGIN PRIVATE KEY-----\nabc123secret-that-must-not-leak\n-----END PRIVATE KEY-----";
+    const session: RawSession = {
+      id: "truncate-secret",
+      sourceFile: "/tmp/truncate-secret.json",
+      projectDir: "/tmp/project",
+      messages: [
+        { role: "user", content: `Please store this durable redaction behavior. ${privateKey}` },
+        { role: "assistant", content: "Implemented durable redaction before candidate truncation." },
+      ],
+    };
+    const exported = candidatesFromSessions([session], { ...DEFAULT_SESSION_SYNC_CONFIG, maxCandidateBytes: 90 }, state, "/tmp/project");
+    expect(exported.candidates.length).toBe(1);
+    expect(exported.candidates[0].content).not.toContain("abc123secret");
+    expect(exported.candidates[0].content).not.toContain("BEGIN PRIVATE KEY");
+    expect(exported.warnings.join("\n")).toContain("private key");
+  });
+
   it("accepts empty optional preview strings as undefined", () => {
     const parsed = PreviewArgsSchema.parse({ sessionId: "", projectDir: "", projectWing: "", globalWing: "" });
     expect(parsed.sessionId).toBeUndefined();
@@ -171,6 +221,52 @@ describe("session sync", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("keeps sqlite discovery project-strict when projectDir is provided", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-strict-"));
+    const dbPath = path.join(dir, "opencode.db");
+    const db = new Database(dbPath);
+    db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
+    db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
+    db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
+    insertOpenCodeSqliteSession(db, "matching", dir, "Matching", 300, "Please implement durable matching project memory.", "Matching project memory was implemented.");
+    insertOpenCodeSqliteSession(db, "unrelated", "/tmp/unrelated-project", "Unrelated", 400, "Please implement unrelated project memory.", "Unrelated project memory was implemented.");
+    db.close();
+
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, discoveryMode: "sqlite" as const, sqlitePath: dbPath, limitSessions: 5 };
+    expect((await discoverSessions(config, dir)).map((session) => session.id)).toEqual(["matching"]);
+    const missing = await discoverSessionsWithWarnings(config, path.join(dir, "missing"));
+    expect(missing.sessions.length).toBe(0);
+    expect(missing.warnings.join("\n")).toContain("No SQLite sessions found");
+
+    const statePath = path.join(dir, "state.json");
+    const preview = await previewSessionSync({ ...config, enabled: true, statePath }, dir);
+    expect(preview.candidates.map((candidate) => candidate.sessionId)).toEqual(["matching"]);
+    expect(preview.candidates.map((candidate) => candidate.content).join("\n")).not.toContain("unrelated");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("applies sqlite message and part caps", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-caps-"));
+    const dbPath = path.join(dir, "opencode.db");
+    const db = new Database(dbPath);
+    db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
+    db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
+    db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
+    db.run('insert into "session" (id, directory, title, time_updated) values (?, ?, ?, ?)', ["capped", dir, "Capped", 300]);
+    db.run("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)", ["msg1", "capped", 100, 100, JSON.stringify({ role: "user" })]);
+    db.run("insert into message (id, session_id, time_created, time_updated, data) values (?, ?, ?, ?, ?)", ["msg2", "capped", 200, 200, JSON.stringify({ role: "assistant" })]);
+    db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part1", "msg1", "capped", 101, JSON.stringify({ type: "text", text: "first part durable request" })]);
+    db.run("insert into part (id, message_id, session_id, time_created, data) values (?, ?, ?, ?, ?)", ["part2", "msg1", "capped", 102, JSON.stringify({ type: "text", text: "second part should be capped" })]);
+    db.close();
+
+    const result = await discoverSessionsWithWarnings({ ...DEFAULT_SESSION_SYNC_CONFIG, discoveryMode: "sqlite", sqlitePath: dbPath, maxMessagesPerSession: 1, maxPartsPerMessage: 1 }, dir);
+    expect(result.sessions[0].messages.length).toBe(1);
+    expect(String(result.sessions[0].messages[0].content)).toBe("first part durable request");
+    expect(result.warnings.join("\n")).toContain("Truncated messages");
+    expect(result.warnings.join("\n")).toContain("Truncated parts");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it("previews candidates from sqlite auto discovery", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-preview-"));
     const dbPath = path.join(dir, "opencode.db");
@@ -181,6 +277,16 @@ describe("session sync", () => {
     expect(preview.candidates.length).toBe(1);
     expect(preview.candidates[0].content).toContain("Please fix sqlite discovery");
     expect(preview.candidates[0].content).not.toContain("TOOL NOISE");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("skips oversized JSON session files before reading and warns", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-json-size-"));
+    fs.mkdirSync(path.join(dir, ".opencode"));
+    fs.writeFileSync(path.join(dir, ".opencode", "large.json"), JSON.stringify({ messages: [{ role: "user", content: "x".repeat(200) }] }));
+    const result = await discoverSessionsWithWarnings({ ...DEFAULT_SESSION_SYNC_CONFIG, sqlitePath: path.join(dir, "missing.db"), maxJsonFileBytes: 50, limitSessions: 1 }, dir);
+    expect(result.sessions.find((session) => session.sourceFile.endsWith("large.json"))).toBeUndefined();
+    expect(result.warnings.join("\n")).toContain("JSON file exceeded");
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -217,6 +323,10 @@ describe("session sync", () => {
     state.processed.abc = { sessionId: "s", exchangeIndex: 0, contentHash: "h", ingestedAt: "now", targetWing: "w", targetRoom: "r" };
     saveState(state, statePath);
     expect(loadState(statePath).processed.abc.targetWing).toBe("w");
+    if (process.platform !== "win32") {
+      expect((fs.statSync(dir).mode & 0o777)).toBe(0o700);
+      expect((fs.statSync(statePath).mode & 0o777)).toBe(0o600);
+    }
     fs.writeFileSync(statePath, "not json");
     expect(Object.keys(loadState(statePath).processed).length).toBe(0);
     fs.rmSync(dir, { recursive: true, force: true });
@@ -226,8 +336,8 @@ describe("session sync", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-preview-"));
     const statePath = path.join(dir, "state.json");
     fs.mkdirSync(path.join(dir, ".opencode"));
-    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify(sampleSession()));
-    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, limitSessions: 1, discoveryMode: "cli" as const };
+    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify({ ...sampleSession(), projectDir: dir }));
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, limitSessions: 1, sqlitePath: path.join(dir, "missing.db") };
 
     const guarded = await ingestSessionSync(config, dir, { previewId: "missing", confirm: true }, async () => ({ ok: true }));
     expect("error" in guarded).toBe(true);
@@ -259,6 +369,12 @@ describe("session sync", () => {
     expect(parseMemPalaceToolResult('not json')).toBeNull();
   });
 
+  it("propagates configured palacePath to the Python writer environment", () => {
+    const env = memPalaceWriterEnv({ PATH: "/bin", MEMPALACE_PALACE_PATH: "/old" }, { palacePath: "/custom/palace" });
+    expect(env.PATH).toBe("/bin");
+    expect(env.MEMPALACE_PALACE_PATH).toBe("/custom/palace");
+  });
+
   it("exposes preview and ingest only when enabled", async () => {
     const result = await plugin({ directory: os.tmpdir(), worktree: os.tmpdir() }, { disableAutoUpdate: true, sessionSync: { enabled: true, statePath: path.join(os.tmpdir(), "session-sync-enabled.json") } });
     expect(result.tool?.mempalace_session_sync_preview).toBeDefined();
@@ -267,7 +383,10 @@ describe("session sync", () => {
 
   it("tool schemas include preview and ingest args", async () => {
     const result = await plugin({ directory: os.tmpdir(), worktree: os.tmpdir() }, { disableAutoUpdate: true, sessionSync: { enabled: true, statePath: path.join(os.tmpdir(), "session-sync-schema.json") } });
-    expect(result.tool?.mempalace_session_sync_preview?.args.projectDir).toBeDefined();
+    expect(result.tool?.mempalace_session_sync_preview?.args.projectDir).toBeUndefined();
+    expect(result.tool?.mempalace_session_sync_preview?.args.projectWing).toBeUndefined();
+    expect(result.tool?.mempalace_session_sync_preview?.args.globalWing).toBeUndefined();
+    expect(result.tool?.mempalace_session_sync_preview?.args.sessionId).toBeDefined();
     expect(result.tool?.mempalace_session_sync_preview?.args.limitCandidates).toBeDefined();
     expect(result.tool?.mempalace_session_sync_ingest?.args.previewId).toBeDefined();
     expect(result.tool?.mempalace_session_sync_ingest?.args.confirm).toBeDefined();
@@ -277,8 +396,8 @@ describe("session sync", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-confirm-"));
     const statePath = path.join(dir, "state.json");
     fs.mkdirSync(path.join(dir, ".opencode"));
-    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify(sampleSession()));
-    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath };
+    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify({ ...sampleSession(), projectDir: dir }));
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, sqlitePath: path.join(dir, "missing.db") };
     const preview = await previewSessionSync(config, dir);
     const missingConfirm = await ingestSessionSync(config, dir, { previewId: preview.previewId, confirm: false as true }, async () => ({ ok: true }));
     expect("error" in missingConfirm).toBe(true);
@@ -291,9 +410,9 @@ describe("session sync", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-subset-"));
     const statePath = path.join(dir, "state.json");
     fs.mkdirSync(path.join(dir, ".opencode"));
-    fs.writeFileSync(path.join(dir, ".opencode", "one.json"), JSON.stringify(sampleSession("Please implement one durable project memory.")));
-    fs.writeFileSync(path.join(dir, ".opencode", "two.json"), JSON.stringify({ ...sampleSession("Please implement another durable project memory."), id: "s2" }));
-    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, limitSessions: 2, discoveryMode: "cli" as const };
+    fs.writeFileSync(path.join(dir, ".opencode", "one.json"), JSON.stringify({ ...sampleSession("Please implement one durable project memory."), projectDir: dir }));
+    fs.writeFileSync(path.join(dir, ".opencode", "two.json"), JSON.stringify({ ...sampleSession("Please implement another durable project memory."), id: "s2", projectDir: dir }));
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, limitSessions: 2, sqlitePath: path.join(dir, "missing.db") };
     const first = await previewSessionSync(config, dir);
     const second = await previewSessionSync(config, dir);
     expect(first.previewId).toBe(second.previewId);
@@ -308,8 +427,8 @@ describe("session sync", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-shape-"));
     const statePath = path.join(dir, "state.json");
     fs.mkdirSync(path.join(dir, ".opencode"));
-    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify(sampleSession()));
-    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, discoveryMode: "cli" as const };
+    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify({ ...sampleSession(), projectDir: dir }));
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath, sqlitePath: path.join(dir, "missing.db") };
     const preview = await previewSessionSync(config, dir, { projectWing: "wing_custom" });
     const stateAfterPreview = loadState(statePath);
     expect(stateAfterPreview.lastPreview?.previewId).toBe(preview.previewId);

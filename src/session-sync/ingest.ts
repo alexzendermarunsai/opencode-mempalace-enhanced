@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import type { IngestResult, MemPalaceWriter, MemoryCandidate, SyncState, WriteResult } from "./contracts.js";
 import { stableKey } from "./normalize.js";
 
+export type MemPalaceWriterOptions = { palacePath?: string };
+
 const ADD_DRAWER_SCRIPT = String.raw`
 import json
 import sys
@@ -56,7 +58,15 @@ export function parseMemPalaceToolResult(stdout: string): { success: boolean; er
   return null;
 }
 
-export async function defaultMemPalaceWriter(candidate: MemoryCandidate): Promise<WriteResult> {
+export function memPalaceWriterEnv(baseEnv: NodeJS.ProcessEnv = process.env, options: MemPalaceWriterOptions = {}): NodeJS.ProcessEnv {
+  return options.palacePath ? { ...baseEnv, MEMPALACE_PALACE_PATH: options.palacePath } : { ...baseEnv };
+}
+
+export function createMemPalaceWriter(options: MemPalaceWriterOptions = {}): MemPalaceWriter {
+  return (candidate) => defaultMemPalaceWriter(candidate, options);
+}
+
+export async function defaultMemPalaceWriter(candidate: MemoryCandidate, options: MemPalaceWriterOptions = {}): Promise<WriteResult> {
   const payload = {
     wing: candidate.wing,
     room: candidate.room,
@@ -70,6 +80,7 @@ export async function defaultMemPalaceWriter(candidate: MemoryCandidate): Promis
     const result = spawnSync(python, ["-c", ADD_DRAWER_SCRIPT], {
       input: JSON.stringify(payload),
       encoding: "utf8",
+      env: memPalaceWriterEnv(process.env, options),
       timeout: 15_000,
       maxBuffer: 1024 * 1024,
     });

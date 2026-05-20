@@ -178,8 +178,12 @@ Use this if you want curated session sync to write project memories with the sam
 | `sessionSync.limitSessions` | `number` | `3` | Maximum recent sessions to inspect during preview |
 | `sessionSync.limitCandidates` | `number` | `50` | Maximum candidates returned by preview |
 | `sessionSync.maxCandidateBytes` | `number` | `4000` | Maximum bytes stored per candidate preview |
+| `sessionSync.maxJsonFileBytes` | `number` | `5000000` | Maximum JSON session file size read during fallback discovery |
+| `sessionSync.maxMessagesPerSession` | `number` | `1000` | Maximum messages read from one session |
+| `sessionSync.maxPartsPerMessage` | `number` | `200` | Maximum OpenCode text parts read from one message |
+| `sessionSync.maxRawExchangeBytes` | `number` | `100000` | Maximum raw normalized exchange size before preview candidate construction |
 | `sessionSync.projectWingStrategy` | `"plugin" | "skill" | "custom"` | `"plugin"` | Project wing naming: `plugin` → existing plugin-style `wing_<project-basename>` (for example `wing_opencode-mempalace`), `skill` → `opencode_mempalace`, `custom` → configured `projectWing` |
-| `sessionSync.projectWing` | `string` | unset | Required only when `projectWingStrategy` is `custom`; can also be supplied to preview |
+| `sessionSync.projectWing` | `string` | unset | Required only when `projectWingStrategy` is `custom` |
 | `sessionSync.globalWing` | `string` | `"opencode_global"` | Wing for global/non-project session memories |
 
 ---
@@ -199,7 +203,7 @@ Curated sync does not replace `mempalace mine` or live auto-mining. It is intend
 
 1. Enable `sessionSync.enabled` in the plugin config.
 2. Start OpenCode and run `mempalace_session_sync_status` to confirm availability and defaults.
-3. Run `mempalace_session_sync_preview` with optional filters such as `projectDir`, `sessionId`, or lower limits.
+3. Run `mempalace_session_sync_preview` with optional filters such as `sessionId` or lower limits. The tool uses the current OpenCode workspace as the project directory; wing names come from plugin config.
 4. Inspect each candidate's content, target wing, target room, and routing reason.
 5. Run `mempalace_session_sync_ingest` with the `previewId`, optional `candidateIds`, and `confirm: true`.
 6. Rerun the same ingest request if needed; already-ingested candidates should report as skipped.
@@ -211,15 +215,17 @@ Curated sync does not replace `mempalace mine` or live auto-mining. It is intend
 | Tool | Args | Notes |
 |---|---|---|
 | `mempalace_session_sync_status` | none | Shows whether curated sync is enabled and which defaults are active. |
-| `mempalace_session_sync_preview` | `sessionId?`, `projectDir?`, `limitSessions?`, `limitCandidates?`, `projectWing?`, `globalWing?` | Discovers candidate memories without writing them. Preview output is intentionally bounded by limits and truncation. |
+| `mempalace_session_sync_preview` | `sessionId?`, `limitSessions?`, `limitCandidates?` | Discovers candidate memories from the current OpenCode workspace without writing them. Preview output is intentionally bounded by limits, redacts common secret patterns, and uses configured wings. |
 | `mempalace_session_sync_ingest` | `previewId`, `candidateIds?`, `confirm: true` | Writes the selected preview candidates. `confirm` must be `true`. If `candidateIds` is omitted, ingest uses all candidates from the preview. |
 
 ### Limitations
 
 - Curated sync is manual only in v1; enabling it does not start automatic historical ingestion.
 - It is not a bulk historical backfill by default. The defaults inspect up to 3 sessions and 50 candidates.
+- SQLite discovery is project-strict when a workspace is available; sessions from other directories are not used as fallback preview input.
 - OpenCode session file formats may vary, so discovery and normalization are best-effort.
-- Preview output is bounded by `limitCandidates` and `maxCandidateBytes`; long candidates may be truncated.
+- Preview output is bounded by `limitCandidates`, `maxCandidateBytes`, JSON/message/part caps, and raw exchange size; long or oversized inputs may be truncated or skipped with warnings.
+- Common secret forms (Bearer tokens, GitHub/OpenAI/AWS keys, private keys, and env-style secret assignments) are redacted in preview content before ingest.
 - Candidate routing is deterministic and does not use LLM classification.
 - Curated sync does not replace live mining or direct MemPalace mining workflows.
 

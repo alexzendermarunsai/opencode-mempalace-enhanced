@@ -58,7 +58,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
   const miningThreshold = opts.threshold;
   const autoMiningEnabled = !opts.disableAutoMining;
   const stateManager = new StateManager(miningThreshold);
-  const sessionSyncConfig = opts.sessionSync;
+  const sessionSyncConfig = opts.palacePath ? { ...opts.sessionSync, palacePath: opts.palacePath } : opts.sessionSync;
 
   // --- 3-state initialization: empty, initializing, ready ---
   let initializationDone = false;
@@ -197,13 +197,10 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
               description: "Preview deterministic curated OpenCode session memories that would be written to MemPalace. Does not mark records processed.",
               args: {
                 sessionId: tool.schema.union([tool.schema.string().min(1), tool.schema.literal("")]).optional(),
-                projectDir: tool.schema.union([tool.schema.string().min(1), tool.schema.literal("")]).optional(),
                 limitSessions: tool.schema.number().int().positive().optional(),
                 limitCandidates: tool.schema.number().int().positive().optional(),
-                projectWing: tool.schema.union([tool.schema.string().min(1), tool.schema.literal("")]).optional(),
-                globalWing: tool.schema.union([tool.schema.string().min(1), tool.schema.literal("")]).optional(),
               },
-              execute: async (args) => JSON.stringify(await previewSessionSync(sessionSyncConfig, args.projectDir ?? workspaceDir, args), null, 2),
+              execute: async (args) => JSON.stringify(await previewSessionSync(sessionSyncConfig, workspaceDir, args), null, 2),
             }),
             mempalace_session_sync_ingest: tool({
               description: "Ingest the latest previewed curated OpenCode session memories into MemPalace. Respects preview-required and idempotent processed state.",

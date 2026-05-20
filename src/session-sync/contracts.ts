@@ -10,12 +10,17 @@ export const SessionSyncConfigSchema = z.object({
   limitSessions: z.number().int().positive().max(100).default(3),
   limitCandidates: z.number().int().positive().max(1000).default(50),
   maxCandidateBytes: z.number().int().positive().max(100_000).default(4000),
+  maxJsonFileBytes: z.number().int().positive().max(100_000_000).default(5_000_000),
+  maxMessagesPerSession: z.number().int().positive().max(10_000).default(1000),
+  maxPartsPerMessage: z.number().int().positive().max(10_000).default(200),
+  maxRawExchangeBytes: z.number().int().positive().max(1_000_000).default(100_000),
   projectWingStrategy: WingStrategySchema.default("plugin"),
   projectWing: z.string().min(1).optional(),
   globalWing: z.string().min(1).default("opencode_global"),
   statePath: z.string().min(1).optional(),
   cliCommand: z.array(z.string()).optional(),
   sqlitePath: z.string().min(1).optional(),
+  palacePath: z.string().min(1).optional(),
 }).refine((config) => config.projectWingStrategy !== "custom" || Boolean(config.projectWing), {
   path: ["projectWing"],
   message: "projectWing is required when projectWingStrategy is custom",
@@ -59,6 +64,7 @@ export type RawSession = {
   sourceFile: string;
   updatedAt?: number;
   messages: RawMessage[];
+  warnings?: string[];
 };
 
 export type SessionSource = {

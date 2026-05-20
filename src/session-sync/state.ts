@@ -25,10 +25,22 @@ export function loadState(statePath?: string): SyncState {
 
 export function saveState(state: SyncState, statePath?: string): void {
   const file = statePath ?? defaultStatePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodIfSupported(dir, 0o700);
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
+  chmodIfSupported(tmp, 0o600);
   fs.renameSync(tmp, file);
+  chmodIfSupported(file, 0o600);
+}
+
+function chmodIfSupported(target: string, mode: number): void {
+  try {
+    fs.chmodSync(target, mode);
+  } catch {
+    // Some filesystems/platforms do not support POSIX modes; atomic state writes still succeed.
+  }
 }
 
 export function scanParamsHash(params: Record<string, unknown>): string {

@@ -1,8 +1,8 @@
 import type { IngestArgs, IngestResult, MemPalaceWriter, PreviewArgs, PreviewReport, SessionSyncConfig } from "./contracts.js";
 import { IngestArgsSchema, PreviewArgsSchema, SessionSyncConfigSchema } from "./contracts.js";
-import { discoverSessions } from "./discovery.js";
+import { discoverSessionsWithWarnings } from "./discovery.js";
 import { candidatesFromSessions } from "./export.js";
-import { ingestCandidates } from "./ingest.js";
+import { createMemPalaceWriter, ingestCandidates } from "./ingest.js";
 import { defaultStatePath, loadState, markPreview, saveState, scanParamsHash } from "./state.js";
 
 export function parseSessionSyncConfig(input: unknown): SessionSyncConfig {
@@ -38,7 +38,8 @@ export async function previewSessionSync(config: SessionSyncConfig, workspaceDir
   const resolved = resolvePreviewConfig(config, parsedArgs);
   const effectiveWorkspace = resolved.workspaceDir ?? workspaceDir;
   const state = loadState(config.statePath);
-  const allSessions = await discoverSessions(resolved.config, effectiveWorkspace);
+  const discovery = await discoverSessionsWithWarnings(resolved.config, effectiveWorkspace);
+  const allSessions = discovery.sessions;
   const sessions = parsedArgs.sessionId ? allSessions.filter((session) => session.id === parsedArgs.sessionId) : allSessions;
   const exported = candidatesFromSessions(sessions, resolved.config, state, effectiveWorkspace);
   const previewId = markPreview(state, exported.candidates, resolved.scanHash);
@@ -53,7 +54,7 @@ export async function previewSessionSync(config: SessionSyncConfig, workspaceDir
     messagesFilteredNoise: exported.messagesFilteredNoise,
     candidates: exported.candidates,
     skipped: exported.skipped,
-    warnings: [],
+    warnings: [...discovery.warnings, ...exported.warnings],
   };
 }
 
@@ -73,7 +74,7 @@ export async function ingestSessionSync(config: SessionSyncConfig, _workspaceDir
   if (unknown.length > 0) return { error: `candidateIds not found in last preview: ${unknown.join(", ")}` };
 
   const selected = candidates.filter((candidate) => requested.includes(candidate.idempotencyKey));
-  const result = await ingestCandidates(parsed.data.previewId, selected, state, writer);
+  const result = await ingestCandidates(parsed.data.previewId, selected, state, writer ?? createMemPalaceWriter({ palacePath: config.palacePath }));
   saveState(state, config.statePath);
   return result;
 }

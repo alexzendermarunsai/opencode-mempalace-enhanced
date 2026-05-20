@@ -2,6 +2,7 @@ import type { MemoryCandidate, RawSession, SessionSyncConfig, SyncState } from "
 import { normalizeSession, stableKey } from "./normalize.js";
 import { isTransientNoise, truncateCandidate } from "./filters.js";
 import { routeCandidate } from "./routing.js";
+import { redactSecrets } from "./redaction.js";
 
 export type CandidateExport = {
   candidates: MemoryCandidate[];
@@ -10,6 +11,7 @@ export type CandidateExport = {
   messagesDropped: number;
   messagesFilteredNoise: number;
   skipped: string[];
+  warnings: string[];
 };
 
 export function candidatesFromSessions(sessions: RawSession[], config: SessionSyncConfig, state: SyncState, workspaceDir: string): CandidateExport {
@@ -18,6 +20,7 @@ export function candidatesFromSessions(sessions: RawSession[], config: SessionSy
   let messagesScanned = 0;
   let messagesKept = 0;
   let messagesFilteredNoise = 0;
+  const warnings: string[] = [];
 
   for (const session of sessions) {
     messagesScanned += session.messages.length;
@@ -27,7 +30,14 @@ export function candidatesFromSessions(sessions: RawSession[], config: SessionSy
         messagesFilteredNoise++;
         continue;
       }
-      const content = truncateCandidate(exchange.content, config.maxCandidateBytes);
+      if (Buffer.byteLength(exchange.content, "utf8") > config.maxRawExchangeBytes) {
+        skipped.push(`${session.id}:${exchange.exchangeIndex}: raw exchange exceeded ${config.maxRawExchangeBytes} bytes`);
+        warnings.push(`Skipped exchange ${session.id}:${exchange.exchangeIndex}; raw exchange exceeded ${config.maxRawExchangeBytes} bytes`);
+        continue;
+      }
+      const redacted = redactSecrets(exchange.content);
+      if (redacted.warnings.length) warnings.push(...redacted.warnings.map((warning) => `${warning} in ${session.id}:${exchange.exchangeIndex}`));
+      const content = truncateCandidate(redacted.text, config.maxCandidateBytes);
       const route = routeCandidate(content, config, session.projectDir || workspaceDir);
       const contentHash = stableKey([content]);
       const idempotencyKey = stableKey([session.id, String(exchange.exchangeIndex), session.sourceFile, route.wing, route.room, contentHash]);
@@ -52,5 +62,5 @@ export function candidatesFromSessions(sessions: RawSession[], config: SessionSy
     if (candidates.length >= config.limitCandidates) break;
   }
 
-  return { candidates, messagesScanned, messagesKept, messagesDropped: Math.max(0, messagesScanned - messagesKept), messagesFilteredNoise, skipped };
+  return { candidates, messagesScanned, messagesKept, messagesDropped: Math.max(0, messagesScanned - messagesKept), messagesFilteredNoise, skipped, warnings };
 }

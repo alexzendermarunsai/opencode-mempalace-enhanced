@@ -21,9 +21,44 @@ export function normalizeText(input: string): string {
 }
 
 export function stripSystemContext(text: string): string {
-  return text
-    .replace(/\[SYSTEM [—\-] MemPalace Context Load\][\s\S]*?\n(?:[\s\S]*?\n)?/g, "")
-    .trim();
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const output: string[] = [];
+  let stripping = false;
+  let sawContextContent = false;
+  let waitingForUserText = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (/^\[SYSTEM [—-] MemPalace Context Load\]$/.test(trimmed)) {
+      stripping = true;
+      sawContextContent = false;
+      waitingForUserText = false;
+      continue;
+    }
+
+    if (!stripping) {
+      output.push(line);
+      continue;
+    }
+
+    // Strip every context line until the first blank separator after context content.
+    // After that separator, preserve the next non-blank line as the actual user request.
+    if (!waitingForUserText) {
+      if (!trimmed) {
+        if (sawContextContent) waitingForUserText = true;
+        continue;
+      }
+      sawContextContent = true;
+      continue;
+    }
+
+    if (!trimmed) continue;
+    stripping = false;
+    output.push(line);
+  }
+
+  return output.join("\n").trim();
 }
 
 export function messageText(message: RawMessage): string {
