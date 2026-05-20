@@ -48,8 +48,6 @@ export function isEmptyWorkspace(dir: string): boolean {
       ".cursor",
       ".vscode",
       ".idea",
-      ".claude",
-      ".gitnexus",
     ]);
     const meaningfulFiles = files.filter((f) => !ignored.has(f));
     return meaningfulFiles.length === 0;
