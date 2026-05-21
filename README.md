@@ -25,31 +25,13 @@ OpenCode plugin integrating [MemPalace](https://github.com/MemPalace/mempalace) 
 
 ## 🚀 Quick Start
 
-### Via npm (original plugin)
-
-```bash
-# 1. Install mempalace CLI globally
-pip install mempalace
-
-# 2. Add plugin to OpenCode config
-# Edit ~/.config/opencode/opencode.jsonc
-{
-  "plugin": ["opencode-mempalace"]
-}
-
-# 3. Open any project folder in OpenCode
-# The plugin auto-initializes and starts tracking memory!
-```
-
-### Via fork (with curated session sync)
-
 ```bash
 # 1. Install mempalace CLI globally
 pip install mempalace
 
 # 2. Clone this fork
-git clone https://github.com/nguyentamdat/opencode-mempalace
-cd opencode-mempalace
+git clone https://github.com/alexzendermarunsai/opencode-mempalace-enhanced
+cd opencode-mempalace-enhanced
 
 # 3. Build
 bun install
@@ -59,7 +41,9 @@ bun run build
 # Edit ~/.config/opencode/opencode.jsonc
 {
   "plugin": [
-    ["/absolute/path/to/opencode-mempalace/dist/index.js", {
+    ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
+      "disableMcp": true,
+      "disableAutoUpdate": true,
       "sessionSync": { "enabled": true }
     }]
   ]
@@ -68,7 +52,7 @@ bun run build
 # 5. Restart OpenCode
 ```
 
-> For local development with manual MemPalace MCP registration, use `"disableMcp": true` and keep your existing `mcp.mempalace` block. See [Configuration](#-configuration) below.
+> Fork of [nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace) with curated session sync, project-strict discovery, secret redaction, and hardened state handling.
 
 ---
 
@@ -138,57 +122,20 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
 
 ### Minimal plugin config
 
-Via npm (original package):
-
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 {
-  "plugin": ["opencode-mempalace"]
+  "plugin": ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js"]
 }
 ```
-
-Via fork (local build):
-
-```jsonc
-// ~/.config/opencode/opencode.jsonc
-{
-  "plugin": ["/absolute/path/to/opencode-mempalace/dist/index.js"]
-}
-```
-
-> When using the fork with manually configured MemPalace MCP (typical for local dev), add `"disableMcp": true` and `"disableAutoUpdate": true`.
 
 ### Enable curated session sync
 
-Via npm:
-
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 {
   "plugin": [
-    ["opencode-mempalace", {
-      "sessionSync": {
-        "enabled": true,
-        "requirePreview": true,
-        "discoveryMode": "auto",
-        "limitSessions": 3,
-        "limitCandidates": 50,
-        "maxCandidateBytes": 4000,
-        "projectWingStrategy": "plugin",
-        "globalWing": "opencode_global"
-      }
-    }]
-  ]
-}
-```
-
-Via fork (local build):
-
-```jsonc
-// ~/.config/opencode/opencode.jsonc
-{
-  "plugin": [
-    ["/home/me/opencode-mempalace/dist/index.js", {
+    ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
       "disableMcp": true,
       "disableAutoUpdate": true,
       "sessionSync": {
@@ -208,29 +155,12 @@ Via fork (local build):
 
 ### Skill-compatible wing naming
 
-Use this if you want curated session sync to write project memories with the same wing naming used by the MemPalace session-memory skill.
-
-Via npm:
+Use this if you want curated session sync to write project memories with the same wing naming used by the MemPalace session-memory skill:
 
 ```jsonc
 {
   "plugin": [
-    ["opencode-mempalace", {
-      "sessionSync": {
-        "enabled": true,
-        "projectWingStrategy": "skill"
-      }
-    }]
-  ]
-}
-```
-
-Via fork (local build):
-
-```jsonc
-{
-  "plugin": [
-    ["/home/me/opencode-mempalace/dist/index.js", {
+    ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
       "disableMcp": true,
       "disableAutoUpdate": true,
       "sessionSync": {
@@ -339,8 +269,8 @@ This plugin is an **evolution** of the excellent [option-K/opencode-plugin-mempa
 
 ```bash
 # Clone and setup
-git clone https://github.com/nguyentamdat/opencode-mempalace
-cd opencode-mempalace
+git clone https://github.com/alexzendermarunsai/opencode-mempalace-enhanced
+cd opencode-mempalace-enhanced
 bun install
 
 # Build
