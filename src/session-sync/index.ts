@@ -38,9 +38,8 @@ export async function previewSessionSync(config: SessionSyncConfig, workspaceDir
   const resolved = resolvePreviewConfig(config, parsedArgs);
   const effectiveWorkspace = resolved.workspaceDir ?? workspaceDir;
   const state = loadState(config.statePath);
-  const discovery = await discoverSessionsWithWarnings(resolved.config, effectiveWorkspace);
-  const allSessions = discovery.sessions;
-  const sessions = parsedArgs.sessionId ? allSessions.filter((session) => session.id === parsedArgs.sessionId) : allSessions;
+  const discovery = await discoverSessionsWithWarnings(resolved.config, effectiveWorkspace, { sessionId: parsedArgs.sessionId });
+  const sessions = discovery.sessions;
   const exported = candidatesFromSessions(sessions, resolved.config, state, effectiveWorkspace);
   const previewId = markPreview(state, exported.candidates, resolved.scanHash);
   saveState(state, config.statePath);
@@ -94,3 +93,4 @@ export function statusSessionSync(config: SessionSyncConfig) {
 }
 
 export * from "./contracts.js";
+export * from "./auto-sync.js";

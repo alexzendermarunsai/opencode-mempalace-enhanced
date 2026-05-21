@@ -5,6 +5,7 @@ import type { RawMessage, RawSession, SessionSyncConfig } from "./contracts.js";
 import { runCommandWithOutput } from "../spawn.js";
 
 type DiscoveryResult = { sessions: RawSession[]; warnings: string[] };
+type DiscoveryOptions = { sessionId?: string };
 
 export function defaultOpenCodeSqlitePath(): string {
   return path.join(os.homedir(), ".local", "share", "opencode", "opencode.db");
@@ -89,7 +90,7 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
-async function discoverSqliteSessions(sqlitePath: string, config: SessionSyncConfig, projectDir?: string): Promise<DiscoveryResult> {
+async function discoverSqliteSessions(sqlitePath: string, config: SessionSyncConfig, projectDir?: string, options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
   if (!fs.existsSync(sqlitePath)) return { sessions: [], warnings: [] };
   const warnings: string[] = [];
   try {
@@ -98,7 +99,7 @@ async function discoverSqliteSessions(sqlitePath: string, config: SessionSyncCon
     const tables = db.query("select name from sqlite_master where type='table'").all() as Array<{ name: string }>;
     const tableNames = new Set(tables.map((row) => row.name));
     if (tableNames.has("session") && tableNames.has("message") && tableNames.has("part")) {
-      const result = discoverOpenCodeSqliteSessions(db, sqlitePath, config, projectDir);
+      const result = discoverOpenCodeSqliteSessions(db, sqlitePath, config, projectDir, options);
       db.close();
       return result;
     }
@@ -124,19 +125,25 @@ async function discoverSqliteSessions(sqlitePath: string, config: SessionSyncCon
       grouped.set(sessionId, list);
     }
     db.close();
-    return { sessions: Array.from(grouped.entries()).slice(0, config.limitSessions).map(([id, messages]) => ({ id, provider: "sqlite" as const, sourceFile: sqlitePath, messages: capMessages(messages, config, id, warnings) })), warnings };
+    const entries = Array.from(grouped.entries()).filter(([id]) => !options.sessionId || id === options.sessionId);
+    return { sessions: entries.slice(0, config.limitSessions).map(([id, messages]) => ({ id, provider: "sqlite" as const, sourceFile: sqlitePath, messages: capMessages(messages, config, id, warnings) })), warnings };
   } catch {
     return { sessions: [], warnings };
   }
 }
 
-function discoverOpenCodeSqliteSessions(db: { query: (sql: string) => { all: (...params: any[]) => unknown[] } }, sqlitePath: string, config: SessionSyncConfig, projectDir?: string): DiscoveryResult {
+function discoverOpenCodeSqliteSessions(db: { query: (sql: string) => { all: (...params: any[]) => unknown[] } }, sqlitePath: string, config: SessionSyncConfig, projectDir?: string, options: DiscoveryOptions = {}): DiscoveryResult {
   const warnings: string[] = [];
   const select = "select id, directory, title, time_updated from \"session\"";
-  const sessionRows = projectDir
-    ? db.query(`${select} where directory = ? order by time_updated desc limit ?`).all(projectDir, config.limitSessions) as Array<Record<string, unknown>>
-    : db.query(`${select} order by time_updated desc limit ?`).all(config.limitSessions) as Array<Record<string, unknown>>;
-  if (projectDir && sessionRows.length === 0) warnings.push(`No SQLite sessions found for projectDir ${projectDir}`);
+  const sessionRows = options.sessionId && projectDir
+    ? db.query(`${select} where id = ? and directory = ? order by time_updated desc limit 1`).all(options.sessionId, projectDir) as Array<Record<string, unknown>>
+    : options.sessionId
+      ? db.query(`${select} where id = ? order by time_updated desc limit 1`).all(options.sessionId) as Array<Record<string, unknown>>
+      : projectDir
+        ? db.query(`${select} where directory = ? order by time_updated desc limit ?`).all(projectDir, config.limitSessions) as Array<Record<string, unknown>>
+        : db.query(`${select} order by time_updated desc limit ?`).all(config.limitSessions) as Array<Record<string, unknown>>;
+  if (options.sessionId && sessionRows.length === 0) warnings.push(`No SQLite session found for sessionId ${options.sessionId}${projectDir ? ` and projectDir ${projectDir}` : ""}`);
+  else if (projectDir && sessionRows.length === 0) warnings.push(`No SQLite sessions found for projectDir ${projectDir}`);
 
   const sessions = sessionRows.map((session): RawSession | null => {
     const sessionId = String(session.id ?? "");
@@ -185,14 +192,14 @@ function discoverOpenCodeSqliteSessions(db: { query: (sql: string) => { all: (..
   return { sessions, warnings };
 }
 
-export async function discoverSessionsWithWarnings(config: SessionSyncConfig, projectDir?: string): Promise<DiscoveryResult> {
+export async function discoverSessionsWithWarnings(config: SessionSyncConfig, projectDir?: string, options: DiscoveryOptions = {}): Promise<DiscoveryResult> {
   const warnings: string[] = [];
   if (config.discoveryMode === "sqlite" || config.discoveryMode === "auto") {
     const sqlitePath = config.sqlitePath ?? (config.discoveryMode === "auto" ? defaultOpenCodeSqlitePath() : undefined);
     if (sqlitePath) {
-      const result = await discoverSqliteSessions(sqlitePath, config, projectDir);
+      const result = await discoverSqliteSessions(sqlitePath, config, projectDir, options);
       warnings.push(...result.warnings);
-      if (result.sessions.length > 0 || config.discoveryMode === "sqlite" || (projectDir && result.warnings.length > 0)) return { sessions: result.sessions, warnings };
+      if (result.sessions.length > 0 || config.discoveryMode === "sqlite" || (!options.sessionId && projectDir && result.warnings.length > 0)) return { sessions: result.sessions, warnings };
     }
   }
 
@@ -204,7 +211,12 @@ export async function discoverSessionsWithWarnings(config: SessionSyncConfig, pr
     if (output) {
       try {
         const parsed = JSON.parse(output) as unknown[];
-        if (Array.isArray(parsed)) return { sessions: parsed.map((item, index) => ({ ...(item as RawSession), provider: "opencode-cli" as const, id: String((item as RawSession).id ?? index), sourceFile: (item as RawSession).sourceFile ?? "opencode-cli" })).slice(0, config.limitSessions), warnings };
+        if (Array.isArray(parsed)) {
+          const sessions = parsed.map((item, index) => ({ ...(item as RawSession), provider: "opencode-cli" as const, id: String((item as RawSession).id ?? index), sourceFile: (item as RawSession).sourceFile ?? "opencode-cli" }))
+            .filter((session) => !options.sessionId || session.id === options.sessionId)
+            .slice(0, config.limitSessions);
+          return { sessions, warnings };
+        }
       } catch {}
     }
   }
@@ -215,10 +227,11 @@ export async function discoverSessionsWithWarnings(config: SessionSyncConfig, pr
   return { sessions: parsed
     .map((item) => item.session)
     .filter((session): session is RawSession => Boolean(session))
+    .filter((session) => !options.sessionId || session.id === options.sessionId)
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
     .slice(0, config.limitSessions), warnings };
 }
 
-export async function discoverSessions(config: SessionSyncConfig, projectDir?: string): Promise<RawSession[]> {
-  return (await discoverSessionsWithWarnings(config, projectDir)).sessions;
+export async function discoverSessions(config: SessionSyncConfig, projectDir?: string, options: DiscoveryOptions = {}): Promise<RawSession[]> {
+  return (await discoverSessionsWithWarnings(config, projectDir, options)).sessions;
 }

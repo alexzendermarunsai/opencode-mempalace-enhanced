@@ -16,10 +16,10 @@ OpenCode plugin integrating [MemPalace](https://github.com/MemPalace/mempalace) 
 | **Project-scoped memory** | ✅ Automatic per-workspace | ❌ Global only |
 | **Auto-initialization** | ✅ Palace auto-created | ❌ Manual setup |
 | **Context injection** | ✅ wakeUp() loads L0+L1 memory | ❌ Manual tool calls |
-| **Background mining** | ✅ Idle/threshold/exit triggers | ❌ None or manual |
+| **Background mining** | ✅ Idle/threshold hooks, plus legacy exit trigger | ❌ None or manual |
 | **MCP Tools** | ✅ 19 native tools | ❌ CLI only |
 | **Auto-update** | ✅ Built-in | ❌ Manual |
-| **Curated session sync** | ✅ Optional preview + ingest | ❌ Not available |
+| **Curated session sync** | ✅ Manual preview/ingest or opt-in auto-sync | ❌ Not available |
 
 ---
 
@@ -43,7 +43,11 @@ bun run build
   "plugin": [
     ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
       "disableAutoUpdate": true,
-      "sessionSync": { "enabled": true }
+      "sessionSync": {
+        "enabled": true,
+        // Optional: replace legacy threshold/idle/delete mining hooks with curated sync.
+        // "autoSync": true
+      }
     }]
   ]
 }
@@ -92,7 +96,7 @@ Your conversations are automatically saved:
 - **Message threshold**: Every 15 messages (configurable)
 - **Session idle**: When you stop chatting
 - **Session deleted**: Cleanup trigger
-- **Process exit**: Emergency sync save on Ctrl+C
+- **Process exit**: Emergency sync save on Ctrl+C for legacy live mining only
 
 ### 5. **19 Native MCP Tools**
 
@@ -113,9 +117,9 @@ Checks NPM registry on session start, auto-installs updates in background. Never
 
 ### 7. **Opt-In Curated Session Sync**
 
-Live behavior stays the same in v1: MCP registration, PALACE protocol injection, wake-up context, auto-mining, compaction memory injection, diary check tooling, and auto-update notifications all continue to run as before.
+Live behavior stays the same unless you opt into curated auto-sync: MCP registration, PALACE protocol injection, wake-up context, compaction memory injection, diary check tooling, and auto-update notifications all continue to run as before.
 
-Curated OpenCode session sync is additive and manual. It is disabled by default (`sessionSync.enabled: false`) and does not automatically ingest historical sessions. When enabled, it lets you preview selected OpenCode session candidates, inspect their target wing/room/reason, and ingest only the candidates you confirm.
+Curated OpenCode session sync is disabled by default (`sessionSync.enabled: false`). When enabled, it provides manual preview/ingest tools. If you also set `sessionSync.autoSync: true`, threshold, idle, and deleted-session hooks use curated session sync instead of legacy `mempalace mine`.
 
 ---
 
@@ -142,6 +146,9 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
         "enabled": true,
         "requirePreview": true,
         "discoveryMode": "auto",
+        // Optional: replace legacy threshold/idle/delete mining hooks with curated sync.
+        // "autoSync": true,
+        // "autoSyncThreshold": 15,
         "limitSessions": 3,
         "limitCandidates": 50,
         "maxCandidateBytes": 4000,
@@ -185,9 +192,11 @@ Use this if you want curated session sync to write project memories with the sam
 | `disableAutoLoad` | `boolean` | `false` | Skip auto-loading context |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
 | `palacePath` | `string` | `~/.mempalace/palace` | Override palace directory |
-| `disableAutoMining` | `boolean` | `false` | Disable background mining |
+| `disableAutoMining` | `boolean` | `false` | Disable automatic mining/sync hooks. This disables both legacy automatic mining and curated auto-sync; manual curated sync tools remain available when `sessionSync.enabled` is `true`. |
 | `threshold` | `number` | `15` | Messages before auto-mining |
-| `sessionSync.enabled` | `boolean` | `false` | Enable manual curated OpenCode session sync tools |
+| `sessionSync.enabled` | `boolean` | `false` | Enable curated OpenCode session sync preview/ingest tools; status is always available |
+| `sessionSync.autoSync` | `boolean` | `false` | Use curated session sync for threshold, idle, and deleted-session hooks instead of legacy `mempalace mine` |
+| `sessionSync.autoSyncThreshold` | `number` | unset | Optional message threshold for curated auto-sync. Falls back to `threshold` when unset. |
 | `sessionSync.requirePreview` | `boolean` | `true` | Require ingest to use a previous preview result |
 | `sessionSync.discoveryMode` | `"auto"` | `"auto"` | Discover OpenCode session files automatically |
 | `sessionSync.limitSessions` | `number` | `3` | Maximum recent sessions to inspect during preview |
@@ -205,14 +214,15 @@ Use this if you want curated session sync to write project memories with the sam
 
 ## 🔄 Live Mining vs Curated Session Sync
 
-The plugin has two memory paths:
+The plugin has three memory modes:
 
-| Path | Default | When it runs | What it does |
+| Mode | Default | When it runs | What it does |
 |---|---:|---|---|
-| **Live mining** | On | During the current OpenCode session through threshold, idle, delete, exit, and compaction hooks | Keeps current project context fresh automatically. This remains the primary memory path. |
-| **Curated session sync** | Off | Only when you enable `sessionSync.enabled` and call the sync tools manually | Finds candidate memories from OpenCode session files, shows a preview, and ingests confirmed candidates. |
+| **Legacy live mining** | On | During the current OpenCode session through threshold, idle, deleted-session, process-exit, and compaction hooks | Keeps current project context fresh automatically using legacy `mempalace mine`. This remains the default automatic path. |
+| **Manual curated sync** | Off | When `sessionSync.enabled` is `true` and you call the sync tools manually | Finds candidate memories from OpenCode sessions, shows a preview, and ingests confirmed candidates. Manual preview/ingest works independently from auto-sync state. |
+| **Curated auto-sync** | Off | When `sessionSync.enabled` and `sessionSync.autoSync` are both `true` | Replaces legacy threshold, idle, and deleted-session mining hooks with curated session sync. It uses targeted discovery by `sessionId`, redaction/filtering/routing/idempotency, and writes drawers through `tool_add_drawer`. |
 
-Curated sync does not replace `mempalace mine` or live auto-mining. It is intended for selective recovery or cleanup of useful session details after you inspect them.
+Set `disableAutoMining: true` to disable both legacy automatic mining and curated auto-sync. This does not disable manual curated sync tools.
 
 ### Curated sync workflow
 
@@ -239,7 +249,7 @@ You don't need to type tool names manually. Say any of these and the assistant w
 
 ### Curated sync tool reference
 
-`mempalace_session_sync_status` is always available. `mempalace_session_sync_preview` and `mempalace_session_sync_ingest` are available only when `sessionSync.enabled` is `true`.
+`mempalace_session_sync_status` is always available. `sessionSync.enabled` enables the curated sync preview and ingest tools.
 
 | Tool | Args | Notes |
 |---|---|---|
@@ -249,14 +259,14 @@ You don't need to type tool names manually. Say any of these and the assistant w
 
 ### Limitations
 
-- Curated sync is manual only in v1; enabling it does not start automatic historical ingestion.
-- It is not a bulk historical backfill by default. The defaults inspect up to 3 sessions and 50 candidates.
+- Curated auto-sync does not run from `process.on('exit')`. The exit handler intentionally skips legacy `mineSync` when auto-sync is enabled because curated sync is async and unsafe during process exit. Auto-sync relies on threshold, idle, and deleted-session hooks.
+- Auto-sync does not bulk backfill historical sessions; it targets the active session hook by `sessionId`. Use manual preview/ingest for selected older sessions. The default manual limits inspect up to 3 sessions and 50 candidates.
 - SQLite discovery is project-strict when a workspace is available; sessions from other directories are not used as fallback preview input.
-- OpenCode session file formats may vary, so discovery and normalization are best-effort.
+- Real OpenCode session discovery is best-effort. OpenCode storage and session formats may vary, so discovery and normalization can miss or skip sessions.
 - Preview output is bounded by `limitCandidates`, `maxCandidateBytes`, JSON/message/part caps, and raw exchange size; long or oversized inputs may be truncated or skipped with warnings.
 - Common secret forms (Bearer tokens, GitHub/OpenAI/AWS keys, private keys, and env-style secret assignments) are redacted in preview content before ingest.
 - Candidate routing is deterministic and does not use LLM classification.
-- Curated sync does not replace live mining or direct MemPalace mining workflows.
+- Curated auto-sync replaces the legacy threshold, idle, and deleted-session mining hooks only when `sessionSync.autoSync` is enabled.
 
 ---
 
@@ -276,7 +286,7 @@ This plugin is an **evolution** of the excellent [option-K/opencode-plugin-mempa
 - ✅ 3-state initialization (empty/initializing/ready)
 - ✅ wakeUp() with L0+L1 memory loading
 - ✅ Background mining with StateManager
-- ✅ Emergency exit handlers
+- ✅ Emergency exit handlers for legacy live mining; curated auto-sync intentionally has no process-exit flush
 - ✅ Project-scoped wings
 - ✅ AAAK compression support
 

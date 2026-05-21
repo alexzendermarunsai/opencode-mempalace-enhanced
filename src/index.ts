@@ -5,7 +5,7 @@ import { tool, type Plugin, type PluginInput, type PluginOptions } from "@openco
 
 import { checkAndUpdate, type UpdateResult } from "./auto-update.js";
 import { StateManager } from "./shared/state.js";
-import { mine, mineSync, wakeUp, isInitialized, initialize } from "./mempalace-cli.js";
+import { isInitialized, initialize } from "./mempalace-cli.js";
 import { getWingFromPath, isEmptyWorkspace } from "./shared/utils.js";
 import { log, logWarn, logError, flushSync } from "./shared/logger.js";
 import { runCommand } from "./spawn.js";
@@ -55,10 +55,13 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     wing = wing.substring(0, 100);
   }
 
-  const miningThreshold = opts.threshold;
   const autoMiningEnabled = !opts.disableAutoMining;
-  const stateManager = new StateManager(miningThreshold);
   const sessionSyncConfig = opts.palacePath ? { ...opts.sessionSync, palacePath: opts.palacePath } : opts.sessionSync;
+  const miningThreshold = sessionSyncConfig.enabled && sessionSyncConfig.autoSync && sessionSyncConfig.autoSyncThreshold
+    ? sessionSyncConfig.autoSyncThreshold
+    : opts.threshold;
+  const stateManager = new StateManager(miningThreshold);
+  const processExitLegacyMiningEnabled = autoMiningEnabled && !(sessionSyncConfig.enabled && sessionSyncConfig.autoSync);
 
   // --- 3-state initialization: empty, initializing, ready ---
   let initializationDone = false;
@@ -102,6 +105,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
   // --- Create plugin dispose handlers ---
   const { flushDirtySessions } = createPluginDispose({
     autoMiningEnabled,
+    legacyMineSyncEnabled: processExitLegacyMiningEnabled,
     stateManager,
     workspaceDir,
     wing,
@@ -138,6 +142,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     stateManager,
     disableAutoLoad: opts.disableAutoLoad,
     autoMiningEnabled,
+    sessionSyncConfig,
     ensureInitialized,
   });
 

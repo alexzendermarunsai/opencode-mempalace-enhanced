@@ -3,6 +3,8 @@ import type { StateManager } from "../shared/state.js";
 import { PALACE_PROTOCOL, MAX_MEMORY_LENGTH, STATUS_MESSAGES } from "../shared/protocol.js";
 import { log, logWarn } from "../shared/logger.js";
 import { wakeUp } from "../mempalace-cli.js";
+import type { SessionSyncConfig } from "../session-sync/contracts.js";
+import { autoSyncSession } from "../session-sync/auto-sync.js";
 
 export interface HooksContext {
   sessionsSeen: Set<string>;
@@ -12,6 +14,7 @@ export interface HooksContext {
   stateManager: StateManager;
   disableAutoLoad: boolean;
   autoMiningEnabled: boolean;
+  sessionSyncConfig: SessionSyncConfig;
   ensureInitialized: () => Promise<"ready" | "initializing" | "empty">;
 }
 
@@ -23,8 +26,42 @@ export interface CreatedHooks {
   event: (params: { event: unknown }) => Promise<void>;
 }
 
+export function shouldResetCountAfterAutoSync(result: Awaited<ReturnType<typeof autoSyncSession>>): boolean {
+  if (result.failed.length > 0) return false;
+  if (result.status !== "success") return false;
+  return result.inserted > 0 || result.skippedAlreadySeen > 0 || result.attempted === 0;
+}
+
 export function createHooks(context: HooksContext): CreatedHooks {
-  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, ensureInitialized } = context;
+  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, ensureInitialized } = context;
+  const useCuratedAutoSync = autoMiningEnabled && sessionSyncConfig.enabled && sessionSyncConfig.autoSync;
+
+  const scheduleMining = (sessionID: string, resetLegacyCount: boolean): void => {
+    setTimeout(() => {
+      if (useCuratedAutoSync) {
+        autoSyncSession(sessionSyncConfig, workspaceDir, sessionID)
+          .then((result) => {
+            if (shouldResetCountAfterAutoSync(result)) stateManager.resetCount(sessionID);
+            else stateManager.markPending(sessionID);
+          })
+          .catch(() => {
+            stateManager.markPending(sessionID);
+          })
+          .finally(() => {
+            stateManager.releaseMiningLock(sessionID);
+          });
+        return;
+      }
+
+      import("../mempalace-cli.js")
+        .then(({ mine }) => mine(workspaceDir, "convos", wing))
+        .catch(() => {})
+        .finally(() => {
+          stateManager.releaseMiningLock(sessionID);
+          if (resetLegacyCount) stateManager.resetCount(sessionID);
+        });
+    }, 2000);
+  };
 
   return {
     // System prompt transformation
@@ -65,20 +102,13 @@ export function createHooks(context: HooksContext): CreatedHooks {
       // Auto-mining: increment message counter
       if (autoMiningEnabled && stateManager.incrementAndCheck(input.sessionID)) {
         if (stateManager.acquireMiningLock(input.sessionID)) {
-          const { mine } = await import("../mempalace-cli.js");
           const state = await ensureInitialized();
           if (state !== "ready") {
             stateManager.releaseMiningLock(input.sessionID);
             return;
           }
 
-          setTimeout(() => {
-            mine(workspaceDir, "convos", wing)
-              .catch(() => {})
-              .finally(() => {
-                stateManager.releaseMiningLock(input.sessionID);
-              });
-          }, 2000);
+          scheduleMining(input.sessionID, false);
         }
       }
     },
@@ -143,21 +173,13 @@ export function createHooks(context: HooksContext): CreatedHooks {
       if (!sessionID || !stateManager.hasPendingMessages(sessionID)) return;
       if (!stateManager.acquireMiningLock(sessionID)) return;
 
-      const { mine } = await import("../mempalace-cli.js");
       const state = await ensureInitialized();
       if (state !== "ready") {
         stateManager.releaseMiningLock(sessionID);
         return;
       }
 
-      setTimeout(() => {
-        mine(workspaceDir, "convos", wing)
-          .catch(() => {})
-          .finally(() => {
-            stateManager.releaseMiningLock(sessionID);
-            stateManager.resetCount(sessionID);
-          });
-      }, 2000);
+      scheduleMining(sessionID, true);
     },
   };
 }

@@ -5,6 +5,8 @@ export const DiscoveryModeSchema = z.enum(["auto", "cli", "sqlite"]);
 
 export const SessionSyncConfigSchema = z.object({
   enabled: z.boolean().default(false),
+  autoSync: z.boolean().default(false),
+  autoSyncThreshold: z.number().int().positive().optional(),
   requirePreview: z.boolean().default(true),
   discoveryMode: DiscoveryModeSchema.default("auto"),
   limitSessions: z.number().int().positive().max(100).default(3),
@@ -121,6 +123,16 @@ export type IngestResult = {
   inserted: number;
   skippedAlreadySeen: number;
   failed: Array<{ idempotencyKey: string; error: string }>;
+};
+
+export type AutoSyncResult = {
+  status: "disabled" | "not_found" | "success" | "partial_failure" | "failed";
+  sessionId: string;
+  attempted: number;
+  inserted: number;
+  skippedAlreadySeen: number;
+  failed: Array<{ idempotencyKey: string; error: string }>;
+  warnings: string[];
 };
 
 export type SessionSyncState = {
