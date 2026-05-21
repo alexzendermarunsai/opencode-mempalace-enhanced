@@ -42,7 +42,6 @@ bun run build
 {
   "plugin": [
     ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
-      "disableMcp": true,
       "disableAutoUpdate": true,
       "sessionSync": { "enabled": true }
     }]
@@ -53,6 +52,8 @@ bun run build
 ```
 
 > Fork of [nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace) with curated session sync, project-strict discovery, secret redaction, and hardened state handling.
+>
+> If you already have MemPalace MCP configured manually in your OpenCode config, add `"disableMcp": true` to avoid duplicate registration.
 
 ---
 
@@ -136,7 +137,6 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
 {
   "plugin": [
     ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
-      "disableMcp": true,
       "disableAutoUpdate": true,
       "sessionSync": {
         "enabled": true,
@@ -153,6 +153,8 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
 }
 ```
 
+> Add `"disableMcp": true` if you already define MemPalace MCP manually in your config.
+
 ### Skill-compatible wing naming
 
 Use this if you want curated session sync to write project memories with the same wing naming used by the MemPalace session-memory skill:
@@ -161,7 +163,6 @@ Use this if you want curated session sync to write project memories with the sam
 {
   "plugin": [
     ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
-      "disableMcp": true,
       "disableAutoUpdate": true,
       "sessionSync": {
         "enabled": true,
@@ -171,6 +172,8 @@ Use this if you want curated session sync to write project memories with the sam
   ]
 }
 ```
+
+> Add `"disableMcp": true` if you already define MemPalace MCP manually.
 
 ### Options
 
