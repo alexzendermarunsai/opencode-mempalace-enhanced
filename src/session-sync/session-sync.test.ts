@@ -70,6 +70,16 @@ describe("session sync", () => {
     expect(String(status)).toContain("disabled");
   });
 
+  it("parses top-level MemPalace CLI command separately from session sync CLI discovery", () => {
+    const parsed = parsePluginOptions({
+      cliCommand: ["/venv/bin/python", "-m", "mempalace"],
+      sessionSync: { cliCommand: ["opencode", "session", "list"] },
+    });
+
+    expect(parsed.cliCommand).toEqual(["/venv/bin/python", "-m", "mempalace"]);
+    expect(parsed.sessionSync.cliCommand).toEqual(["opencode", "session", "list"]);
+  });
+
   it("reports disabled status mode and auto-sync defaults", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-status-disabled-"));
     const status = statusSessionSync({ ...DEFAULT_SESSION_SYNC_CONFIG, statePath: path.join(dir, "state.json") });
