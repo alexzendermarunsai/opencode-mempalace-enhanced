@@ -5,7 +5,7 @@ import { tool, type Plugin, type PluginInput, type PluginOptions } from "@openco
 
 import { checkAndUpdate, type UpdateResult } from "./auto-update.js";
 import { StateManager } from "./shared/state.js";
-import { isInitialized, initialize } from "./mempalace-cli.js";
+import { isInitialized, initialize, type MempalaceCliOptions } from "./mempalace-cli.js";
 import { getWingFromPath, isEmptyWorkspace } from "./shared/utils.js";
 import { log, logWarn, logError, flushSync } from "./shared/logger.js";
 import { runCommand } from "./spawn.js";
@@ -56,6 +56,10 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
   }
 
   const autoMiningEnabled = !opts.disableAutoMining;
+  const mempalaceCliOptions: MempalaceCliOptions = {
+    cliCommand: opts.cliCommand,
+    palacePath: opts.palacePath,
+  };
   const sessionSyncConfig = opts.palacePath ? { ...opts.sessionSync, palacePath: opts.palacePath } : opts.sessionSync;
   const miningThreshold = sessionSyncConfig.enabled && sessionSyncConfig.autoSync && sessionSyncConfig.autoSyncThreshold
     ? sessionSyncConfig.autoSyncThreshold
@@ -80,7 +84,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
       return "initializing";
     }
 
-    const initialized = await isInitialized(workspaceDir);
+    const initialized = await isInitialized(workspaceDir, mempalaceCliOptions);
     if (initialized) {
       initializationDone = true;
       return "ready";
@@ -88,7 +92,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
 
     // Start background initialization
     isInitializing = true;
-    initialize(workspaceDir)
+    initialize(workspaceDir, mempalaceCliOptions)
       .then(() => {
         initializationDone = true;
       })
@@ -109,6 +113,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     stateManager,
     workspaceDir,
     wing,
+    mempalaceCliOptions,
   });
 
   // --- Auto-update check (fire-and-forget) ---
@@ -143,6 +148,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     disableAutoLoad: opts.disableAutoLoad,
     autoMiningEnabled,
     sessionSyncConfig,
+    mempalaceCliOptions,
     ensureInitialized,
   });
 

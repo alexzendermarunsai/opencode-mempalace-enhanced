@@ -3,6 +3,7 @@ import type { StateManager } from "../shared/state.js";
 import { PALACE_PROTOCOL, MAX_MEMORY_LENGTH, STATUS_MESSAGES } from "../shared/protocol.js";
 import { log, logWarn } from "../shared/logger.js";
 import { wakeUp } from "../mempalace-cli.js";
+import type { MempalaceCliOptions } from "../mempalace-cli.js";
 import type { SessionSyncConfig } from "../session-sync/contracts.js";
 import { autoSyncSession } from "../session-sync/auto-sync.js";
 
@@ -15,6 +16,7 @@ export interface HooksContext {
   disableAutoLoad: boolean;
   autoMiningEnabled: boolean;
   sessionSyncConfig: SessionSyncConfig;
+  mempalaceCliOptions?: MempalaceCliOptions;
   ensureInitialized: () => Promise<"ready" | "initializing" | "empty">;
 }
 
@@ -33,7 +35,7 @@ export function shouldResetCountAfterAutoSync(result: Awaited<ReturnType<typeof 
 }
 
 export function createHooks(context: HooksContext): CreatedHooks {
-  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, ensureInitialized } = context;
+  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, mempalaceCliOptions, ensureInitialized } = context;
   const useCuratedAutoSync = autoMiningEnabled && sessionSyncConfig.enabled && sessionSyncConfig.autoSync;
 
   const scheduleMining = (sessionID: string, resetLegacyCount: boolean): void => {
@@ -54,7 +56,7 @@ export function createHooks(context: HooksContext): CreatedHooks {
       }
 
       import("../mempalace-cli.js")
-        .then(({ mine }) => mine(workspaceDir, "convos", wing))
+        .then(({ mine }) => mine(workspaceDir, "convos", wing, mempalaceCliOptions))
         .catch(() => {})
         .finally(() => {
           stateManager.releaseMiningLock(sessionID);
@@ -83,7 +85,7 @@ export function createHooks(context: HooksContext): CreatedHooks {
         } else if (state === "initializing") {
           memoryText = STATUS_MESSAGES.initializing;
         } else if (state === "ready") {
-          const memory = await wakeUp(wing);
+          const memory = await wakeUp(wing, mempalaceCliOptions);
           if (memory) {
             memoryText = memory.length > MAX_MEMORY_LENGTH
               ? memory.substring(0, MAX_MEMORY_LENGTH) + "\n...[Memory Truncated]"
@@ -141,7 +143,7 @@ export function createHooks(context: HooksContext): CreatedHooks {
       }
 
       // state === "ready" - load memory via wakeUp
-      const memory = await wakeUp(wing);
+      const memory = await wakeUp(wing, mempalaceCliOptions);
       if (memory) {
         const truncatedMemory =
           memory.length > MAX_MEMORY_LENGTH

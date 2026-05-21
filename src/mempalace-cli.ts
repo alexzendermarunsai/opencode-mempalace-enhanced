@@ -19,17 +19,43 @@ const MAX_RETRIES = 2;
 
 type FallbackCommand = { cmd: string; args: string[] };
 
+export type MempalaceCliOptions = { cliCommand?: string[]; palacePath?: string };
+
+function buildCommandBases(options: MempalaceCliOptions = {}): FallbackCommand[] {
+  const customCommand = options.cliCommand;
+  if (customCommand && customCommand.length > 0) {
+    const cmd = customCommand[0];
+    const args = customCommand.slice(1);
+    if (cmd) return [{ cmd, args }];
+  }
+
+  return [
+    { cmd: "mempalace", args: [] },
+    { cmd: "python3", args: ["-m", "mempalace"] },
+    { cmd: "python", args: ["-m", "mempalace"] },
+  ];
+}
+
+function withPalace(args: string[], palacePath?: string): string[] {
+  return palacePath ? ["--palace", palacePath, ...args] : args;
+}
+
+function buildCommands(args: string[], options: MempalaceCliOptions = {}): FallbackCommand[] {
+  const cliArgs = withPalace(args, options.palacePath);
+  return buildCommandBases(options).map((base) => ({
+    cmd: base.cmd,
+    args: [...base.args, ...cliArgs],
+  }));
+}
+
 function buildMineCommands(
   dir: string,
   mode: string,
   wing: string,
+  options: MempalaceCliOptions = {},
 ): FallbackCommand[] {
   const mineArgs = ["mine", dir, "--mode", mode, "--wing", wing];
-  return [
-    { cmd: "mempalace", args: mineArgs },
-    { cmd: "python3", args: ["-m", "mempalace", ...mineArgs] },
-    { cmd: "python", args: ["-m", "mempalace", ...mineArgs] },
-  ];
+  return buildCommands(mineArgs, options);
 }
 
 /**
@@ -40,8 +66,9 @@ export async function mine(
   dir: string,
   mode: string,
   wing: string,
+  options: MempalaceCliOptions = {},
 ): Promise<void> {
-  const commands = buildMineCommands(dir, mode, wing);
+  const commands = buildMineCommands(dir, mode, wing, options);
   let lastError: Error | null = null;
 
   for (const { cmd, args } of commands) {
@@ -77,8 +104,8 @@ export async function mine(
  * Synchronously mine a workspace directory.
  * Used by process exit handlers.
  */
-export function mineSync(dir: string, mode: string, wing: string): void {
-  for (const { cmd, args } of buildMineCommands(dir, mode, wing)) {
+export function mineSync(dir: string, mode: string, wing: string, options: MempalaceCliOptions = {}): void {
+  for (const { cmd, args } of buildMineCommands(dir, mode, wing, options)) {
     if (runCommandSync(cmd, args, CLI_TIMEOUT_MS)) return;
   }
   // Silent failure in sync context
@@ -88,15 +115,13 @@ export function mineSync(dir: string, mode: string, wing: string): void {
  * Check if mempalace is initialized for a workspace.
  * Enhanced with error classification.
  */
-export async function isInitialized(dir: string): Promise<boolean> {
-  const palacePath = path.join(dir, ".mempalace", "palace");
-  const args = ["status", "--palace", palacePath];
+export async function isInitialized(dir: string, options: MempalaceCliOptions = {}): Promise<boolean> {
+  const palacePath = options.palacePath ?? path.join(dir, ".mempalace", "palace");
+  const commands = buildCommands(["status"], { ...options, palacePath });
 
-  for (const cmd of ["mempalace", "python3", "python"]) {
-    const fullArgs = cmd === "mempalace" ? args : ["-m", "mempalace", ...args];
-    
+  for (const { cmd, args } of commands) {
     const result = await safeAsync(
-      () => runCommandWithOutput(cmd, fullArgs, CLI_TIMEOUT_MS),
+      () => runCommandWithOutput(cmd, args, CLI_TIMEOUT_MS),
       `checking initialization with ${cmd}`
     );
 
@@ -120,12 +145,11 @@ export async function isInitialized(dir: string): Promise<boolean> {
  * Initialize mempalace for a workspace.
  * Enhanced with error classification.
  */
-export async function initialize(dir: string): Promise<void> {
+export async function initialize(dir: string, options: MempalaceCliOptions = {}): Promise<void> {
   const initArgs = ["init", "--yes", dir];
+  const commands = buildCommands(initArgs, options);
 
-  for (const cmd of ["mempalace", "python3", "python"]) {
-    const args = cmd === "mempalace" ? initArgs : ["-m", "mempalace", ...initArgs];
-    
+  for (const { cmd, args } of commands) {
     const result = await safeAsync(
       () => runCommand(cmd, args, CLI_TIMEOUT_MS),
       `initializing with ${cmd}`
@@ -150,26 +174,25 @@ const WAKEUP_CACHE_TTL_MS = 30000; // 30 seconds
  * Wake up mempalace and get L0+L1 memory for a wing.
  * Enhanced with caching and error classification.
  */
-export async function wakeUp(wing: string): Promise<string | null> {
+export async function wakeUp(wing: string, options: MempalaceCliOptions = {}): Promise<string | null> {
   // Check cache first
-  const cached = wakeUpCache.get(wing);
+  const cacheKey = JSON.stringify({ wing, cliCommand: options.cliCommand ?? null, palacePath: options.palacePath ?? null });
+  const cached = wakeUpCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < WAKEUP_CACHE_TTL_MS) {
     return cached.result;
   }
 
-  const args = ["wake-up", "--wing", wing];
+  const commands = buildCommands(["wake-up", "--wing", wing], options);
 
-  for (const cmd of ["mempalace", "python3", "python"]) {
-    const fullArgs = cmd === "mempalace" ? args : ["-m", "mempalace", ...args];
-    
+  for (const { cmd, args } of commands) {
     const result = await safeAsync(
-      () => runCommandWithOutput(cmd, fullArgs, CLI_TIMEOUT_MS),
+      () => runCommandWithOutput(cmd, args, CLI_TIMEOUT_MS),
       `waking up with ${cmd}`
     );
 
     if (result.success && result.data && result.data.length > 0) {
       // Cache successful result
-      wakeUpCache.set(wing, { result: result.data, timestamp: Date.now() });
+      wakeUpCache.set(cacheKey, { result: result.data, timestamp: Date.now() });
       return result.data;
     }
 

@@ -184,16 +184,53 @@ Use this if you want curated session sync to write project memories with the sam
 
 > Add `"disableMcp": true` if you already define MemPalace MCP manually.
 
+### Use a specific MemPalace CLI and palace path
+
+If MemPalace is installed in a virtualenv, configure the plugin-level CLI command used for live `status`, `wake-up`, `mine`, and `init` calls. Pairing it with a global `palacePath` keeps startup from repeatedly checking or initializing a project-local `.mempalace/palace` when you want one shared palace.
+
+```jsonc
+{
+  "plugin": [
+    ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
+      "disableAutoUpdate": true,
+      "cliCommand": ["/home/enterme2/.venvs/mempalace/bin/python", "-m", "mempalace"],
+      "palacePath": "/home/enterme2/.mempalace/palace"
+    }]
+  ]
+}
+```
+
+Do not confuse these command options:
+
+- `cliCommand`: plugin-level MemPalace CLI prefix for live memory operations (`status`, `wake-up`, `mine`, `init`).
+- `mcpCommand`: plugin-level command for starting the MemPalace MCP server.
+- `sessionSync.cliCommand`: curated session-sync discovery command for finding OpenCode sessions; it is not used to run the MemPalace CLI.
+
+### Optional global identity
+
+MemPalace can include L0 identity context from `~/.mempalace/identity.txt`. This file is optional, global, and personal; it is not project-scoped, and the plugin does not auto-create it. Project memory, live mining, manual curated sync, and curated auto-sync all work without it.
+
+If you want identity context in wake-up output, create the file manually and keep it high-level:
+
+```text
+# ~/.mempalace/identity.txt
+# Name: <what assistants should call you>
+# Working style: <brief collaboration preferences>
+# Global preferences: <stable preferences that apply across projects>
+# Privacy boundaries: <what should not be assumed, stored, or repeated>
+```
+
 ### Options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `mcpCommand` | `string[]` | `["python3", "-m", "mempalace.mcp_server"]` | Command to start the MCP server |
+| `cliCommand` | `string[]` | fallback chain: `mempalace`, `python3 -m mempalace`, `python -m mempalace` | Command prefix for the MemPalace CLI used by live `status`, `wake-up`, `mine`, and `init` calls. Example: `["/home/enterme2/.venvs/mempalace/bin/python", "-m", "mempalace"]`. |
 | `disableMcp` | `boolean` | `false` | Skip auto-registering MCP server |
 | `disableProtocol` | `boolean` | `false` | Skip injecting PALACE_PROTOCOL |
 | `disableAutoLoad` | `boolean` | `false` | Skip auto-loading context |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
-| `palacePath` | `string` | `~/.mempalace/palace` | Override palace directory |
+| `palacePath` | `string` | unset | Override palace directory. When unset, live initialization checks use `<workspace>/.mempalace/palace`; set this to a shared palace path when using one global palace. |
 | `disableAutoMining` | `boolean` | `false` | Disable automatic mining/sync hooks. This disables both legacy automatic mining and curated auto-sync; manual curated sync tools remain available when `sessionSync.enabled` is `true`. |
 | `threshold` | `number` | `15` | Messages before legacy auto-mining; also used as the curated auto-sync fallback when `sessionSync.autoSyncThreshold` is unset |
 | `sessionSync.enabled` | `boolean` | `false` | Enable curated OpenCode session sync preview/ingest tools; status is always available |
@@ -212,7 +249,7 @@ Use this if you want curated session sync to write project memories with the sam
 | `sessionSync.projectWing` | `string` | unset | Required only when `projectWingStrategy` is `custom` |
 | `sessionSync.globalWing` | `string` | `"opencode_global"` | Wing for global/non-project session memories |
 | `sessionSync.statePath` | `string` | `~/.mempalace/opencode-session-sync/state.json` | Override the curated sync state file path |
-| `sessionSync.cliCommand` | `string[]` | unset | Command used for `cli` discovery, or as an `auto` fallback when configured |
+| `sessionSync.cliCommand` | `string[]` | unset | Command used for curated session `cli` discovery, or as an `auto` fallback when configured. This is separate from plugin-level `cliCommand`. |
 | `sessionSync.sqlitePath` | `string` | unset | Override the OpenCode SQLite database path; `auto` uses the default OpenCode database path when unset |
 | `sessionSync.palacePath` | `string` | unset | Override the MemPalace path used by curated session sync ingest; plugin-level `palacePath` is passed through when set |
 
@@ -255,11 +292,11 @@ Depending on the assistant and tool-routing setup, prompts like these may map to
 
 ### Curated sync tool reference
 
-`mempalace_session_sync_status` is always available. `sessionSync.enabled` enables the curated sync preview and ingest tools.
+`mempalace_session_sync_status` is always available. It reports `mode` (`disabled`, `manual`, or `curated-auto-sync`), `autoSync`, and the configured `autoSyncThreshold` when set. `sessionSync.enabled` enables the curated sync preview and ingest tools.
 
 | Tool | Args | Notes |
 |---|---|---|
-| `mempalace_session_sync_status` | none | Shows whether curated sync is enabled and which defaults are active. |
+| `mempalace_session_sync_status` | none | Shows whether curated sync is enabled, its mode, auto-sync state, and active defaults. |
 | `mempalace_session_sync_preview` | `sessionId?`, `limitSessions?`, `limitCandidates?` | Discovers candidate memories from the current OpenCode workspace without writing them. Preview output is intentionally bounded by limits, redacts common secret patterns, and uses configured wings. |
 | `mempalace_session_sync_ingest` | `previewId`, `candidateIds?`, `confirm: true` | Writes the selected preview candidates. `confirm` must be `true`. If `candidateIds` is omitted, ingest uses all candidates from the preview. |
 

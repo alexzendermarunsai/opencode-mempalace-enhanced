@@ -12,7 +12,7 @@ import { discoverSessions, discoverSessionsWithWarnings } from "./discovery.js";
 import { candidatesFromSessions } from "./export.js";
 import { isTransientNoise } from "./filters.js";
 import { ingestCandidates, memPalaceWriterEnv, parseMemPalaceToolResult } from "./ingest.js";
-import { previewSessionSync, ingestSessionSync } from "./index.js";
+import { previewSessionSync, ingestSessionSync, statusSessionSync } from "./index.js";
 import { buildSessionMemoryText, extractFinalAssistantAnswer, normalizeSession, normalizeText, stableKey, stripSystemContext } from "./normalize.js";
 import { routeCandidate, projectWingFor } from "./routing.js";
 import { emptyState, loadState, saveState } from "./state.js";
@@ -68,6 +68,45 @@ describe("session sync", () => {
     expect(result.tool?.mempalace_session_sync_preview).toBeUndefined();
     const status = await result.tool?.mempalace_session_sync_status?.execute?.({}, { sessionID: "s" });
     expect(String(status)).toContain("disabled");
+  });
+
+  it("parses top-level MemPalace CLI command separately from session sync CLI discovery", () => {
+    const parsed = parsePluginOptions({
+      cliCommand: ["/venv/bin/python", "-m", "mempalace"],
+      sessionSync: { cliCommand: ["opencode", "session", "list"] },
+    });
+
+    expect(parsed.cliCommand).toEqual(["/venv/bin/python", "-m", "mempalace"]);
+    expect(parsed.sessionSync.cliCommand).toEqual(["opencode", "session", "list"]);
+  });
+
+  it("reports disabled status mode and auto-sync defaults", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-status-disabled-"));
+    const status = statusSessionSync({ ...DEFAULT_SESSION_SYNC_CONFIG, statePath: path.join(dir, "state.json") });
+    expect(status.enabled).toBe(false);
+    expect(status.autoSync).toBe(false);
+    expect(status.mode).toBe("disabled");
+    expect(status.message).toContain("disabled");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports manual curated sync status mode when enabled without auto-sync", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-status-manual-"));
+    const status = statusSessionSync({ ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, statePath: path.join(dir, "state.json") });
+    expect(status.enabled).toBe(true);
+    expect(status.autoSync).toBe(false);
+    expect(status.mode).toBe("manual");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("reports curated auto-sync status mode and configured threshold", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-status-auto-"));
+    const status = statusSessionSync({ ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, autoSync: true, autoSyncThreshold: 7, statePath: path.join(dir, "state.json") });
+    expect(status.enabled).toBe(true);
+    expect(status.autoSync).toBe(true);
+    expect(status.mode).toBe("curated-auto-sync");
+    expect(status.autoSyncThreshold).toBe(7);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("strips MemPalace system context from user text", () => {

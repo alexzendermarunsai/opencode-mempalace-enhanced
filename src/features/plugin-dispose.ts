@@ -1,6 +1,7 @@
 import type { StateManager } from "../shared/state.js";
 import { logWarn } from "../shared/logger.js";
 import { mineSync } from "../mempalace-cli.js";
+import type { MempalaceCliOptions } from "../mempalace-cli.js";
 
 export interface DisposeContext {
   autoMiningEnabled: boolean;
@@ -8,6 +9,7 @@ export interface DisposeContext {
   stateManager: StateManager;
   workspaceDir: string;
   wing: string;
+  mempalaceCliOptions?: MempalaceCliOptions;
 }
 
 export interface DisposeFns {
@@ -16,7 +18,7 @@ export interface DisposeFns {
 }
 
 export function createPluginDispose(context: DisposeContext): DisposeFns {
-  const { autoMiningEnabled, stateManager, workspaceDir, wing } = context;
+  const { autoMiningEnabled, stateManager, workspaceDir, wing, mempalaceCliOptions } = context;
   const legacyMineSyncEnabled = context.legacyMineSyncEnabled ?? autoMiningEnabled;
   
   let isFlushing = false;
@@ -31,7 +33,7 @@ export function createPluginDispose(context: DisposeContext): DisposeFns {
     isFlushing = true;
     const dirty = stateManager.getDirtySessions();
     if (dirty.length > 0) {
-      mineSync(workspaceDir, "convos", wing);
+      mineSync(workspaceDir, "convos", wing, mempalaceCliOptions);
       for (const id of dirty) {
         stateManager.resetCount(id);
       }
