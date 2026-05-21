@@ -62,6 +62,7 @@ describe("session sync", () => {
     expect(parsed.sessionSync.autoSyncThreshold).toBeUndefined();
     expect(parsed.sessionSync.requirePreview).toBe(true);
     expect(parsed.sessionSync.globalWing).toBe("opencode_global");
+    expect(parsed.wakeUpInjection).toBe("once-per-session");
 
     const result = await plugin({ directory: os.tmpdir(), worktree: os.tmpdir() }, { disableAutoUpdate: true });
     expect(result.tool?.mempalace_session_sync_status).toBeDefined();
@@ -73,10 +74,12 @@ describe("session sync", () => {
   it("parses top-level MemPalace CLI command separately from session sync CLI discovery", () => {
     const parsed = parsePluginOptions({
       cliCommand: ["/venv/bin/python", "-m", "mempalace"],
+      wakeUpInjection: "once-per-process",
       sessionSync: { cliCommand: ["opencode", "session", "list"] },
     });
 
     expect(parsed.cliCommand).toEqual(["/venv/bin/python", "-m", "mempalace"]);
+    expect(parsed.wakeUpInjection).toBe("once-per-process");
     expect(parsed.sessionSync.cliCommand).toEqual(["opencode", "session", "list"]);
   });
 
@@ -569,6 +572,7 @@ describe("session sync", () => {
       disableAutoLoad: true,
       autoMiningEnabled: true,
       sessionSyncConfig: { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, autoSync: true, statePath: path.join(dir, "state.json"), sqlitePath: path.join(dir, "missing.db") },
+      wakeUpInjectionMode: "once-per-process",
       ensureInitialized: async () => "ready",
     });
     await hooks.chatMessage({ sessionID: "missing" }, { parts: [{ type: "text", text: "hi" }] });

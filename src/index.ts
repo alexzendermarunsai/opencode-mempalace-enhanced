@@ -15,6 +15,7 @@ import { createPluginDispose } from "./features/plugin-dispose.js";
 import { createUpdateNotification } from "./features/update-notification.js";
 import { PALACE_PROTOCOL, MAX_MEMORY_LENGTH, STATUS_MESSAGES } from "./shared/protocol.js";
 import { IngestArgsSchema, ingestSessionSync, previewSessionSync, statusSessionSync } from "./session-sync/index.js";
+import { WakeUpInjectionStateManager } from "./shared/wake-up-injection-state.js";
 
 const require = createRequire(import.meta.url);
 const PLUGIN_VERSION: string = require("../package.json").version;
@@ -65,6 +66,9 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     ? sessionSyncConfig.autoSyncThreshold
     : opts.threshold;
   const stateManager = new StateManager(miningThreshold);
+  const wakeUpInjectionState = opts.wakeUpInjection === "once-per-session"
+    ? new WakeUpInjectionStateManager()
+    : undefined;
   const processExitLegacyMiningEnabled = autoMiningEnabled && !(sessionSyncConfig.enabled && sessionSyncConfig.autoSync);
 
   // --- 3-state initialization: empty, initializing, ready ---
@@ -148,6 +152,8 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     disableAutoLoad: opts.disableAutoLoad,
     autoMiningEnabled,
     sessionSyncConfig,
+    wakeUpInjectionMode: opts.wakeUpInjection,
+    wakeUpInjectionState,
     mempalaceCliOptions,
     ensureInitialized,
   });
