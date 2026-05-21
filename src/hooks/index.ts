@@ -6,6 +6,7 @@ import { wakeUp } from "../mempalace-cli.js";
 import type { MempalaceCliOptions } from "../mempalace-cli.js";
 import type { SessionSyncConfig } from "../session-sync/contracts.js";
 import { autoSyncSession } from "../session-sync/auto-sync.js";
+import type { WakeUpInjectionMode, WakeUpInjectionStateManager, WakeUpInjectionStatus } from "../shared/wake-up-injection-state.js";
 
 export interface HooksContext {
   sessionsSeen: Set<string>;
@@ -16,6 +17,8 @@ export interface HooksContext {
   disableAutoLoad: boolean;
   autoMiningEnabled: boolean;
   sessionSyncConfig: SessionSyncConfig;
+  wakeUpInjectionMode: WakeUpInjectionMode;
+  wakeUpInjectionState?: WakeUpInjectionStateManager;
   mempalaceCliOptions?: MempalaceCliOptions;
   ensureInitialized: () => Promise<"ready" | "initializing" | "empty">;
 }
@@ -35,7 +38,7 @@ export function shouldResetCountAfterAutoSync(result: Awaited<ReturnType<typeof 
 }
 
 export function createHooks(context: HooksContext): CreatedHooks {
-  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, mempalaceCliOptions, ensureInitialized } = context;
+  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, wakeUpInjectionMode, wakeUpInjectionState, mempalaceCliOptions, ensureInitialized } = context;
   const useCuratedAutoSync = autoMiningEnabled && sessionSyncConfig.enabled && sessionSyncConfig.autoSync;
 
   const scheduleMining = (sessionID: string, resetLegacyCount: boolean): void => {
@@ -75,28 +78,41 @@ export function createHooks(context: HooksContext): CreatedHooks {
     async chatMessage(input, output) {
       // Only inject wakeUp on first message of session
       if (!disableAutoLoad && !sessionsSeen.has(input.sessionID)) {
-        sessionsSeen.add(input.sessionID);
+        const usePersistentWakeUpGuard = wakeUpInjectionMode === "once-per-session" && wakeUpInjectionState;
 
-        const state = await ensureInitialized();
-        let memoryText = "";
+        if (usePersistentWakeUpGuard && wakeUpInjectionState.shouldSuppress(input.sessionID)) {
+          sessionsSeen.add(input.sessionID);
+        } else {
+          sessionsSeen.add(input.sessionID);
 
-        if (state === "empty") {
-          memoryText = STATUS_MESSAGES.empty;
-        } else if (state === "initializing") {
-          memoryText = STATUS_MESSAGES.initializing;
-        } else if (state === "ready") {
-          const memory = await wakeUp(wing, mempalaceCliOptions);
-          if (memory) {
-            memoryText = memory.length > MAX_MEMORY_LENGTH
-              ? memory.substring(0, MAX_MEMORY_LENGTH) + "\n...[Memory Truncated]"
-              : memory;
+          const state = await ensureInitialized();
+          let memoryText = "";
+          let injectionStatus: WakeUpInjectionStatus | undefined;
+
+          if (state === "empty") {
+            memoryText = STATUS_MESSAGES.empty;
+            injectionStatus = "empty";
+          } else if (state === "initializing") {
+            memoryText = STATUS_MESSAGES.initializing;
+            injectionStatus = "initializing";
+          } else if (state === "ready") {
+            const memory = await wakeUp(wing, mempalaceCliOptions);
+            if (memory) {
+              memoryText = memory.length > MAX_MEMORY_LENGTH
+                ? memory.substring(0, MAX_MEMORY_LENGTH) + "\n...[Memory Truncated]"
+                : memory;
+              injectionStatus = "loaded";
+            }
           }
-        }
 
-        if (memoryText) {
-          const firstTextPart = output.parts.find((p) => p.type === "text");
-          if (firstTextPart && "text" in firstTextPart) {
-            firstTextPart.text = `[SYSTEM — MemPalace Context Load]\n${memoryText}\n\n${firstTextPart.text}`;
+          if (memoryText) {
+            const firstTextPart = output.parts.find((p) => p.type === "text");
+            if (firstTextPart && "text" in firstTextPart) {
+              firstTextPart.text = `[SYSTEM — MemPalace Context Load]\n${memoryText}\n\n${firstTextPart.text}`;
+              if (usePersistentWakeUpGuard && injectionStatus) {
+                wakeUpInjectionState.markInjected(input.sessionID, injectionStatus);
+              }
+            }
           }
         }
       }

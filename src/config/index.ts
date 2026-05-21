@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_SESSION_SYNC_CONFIG, SessionSyncConfigSchema } from "../session-sync/contracts.js";
+import type { WakeUpInjectionMode } from "../shared/wake-up-injection-state.js";
 
 /**
  * MemPalace Plugin Configuration Schemas
@@ -13,6 +14,9 @@ const McpCommandSchema = z.array(z.string()).default(["python3", "-m", "mempalac
 
 // Base schema for the MemPalace CLI command prefix
 const CliCommandSchema = z.array(z.string()).min(1);
+
+// Wake-up context load duplicate-injection behavior.
+const WakeUpInjectionSchema = z.enum(["once-per-session", "once-per-process"] satisfies [WakeUpInjectionMode, WakeUpInjectionMode]).default("once-per-session");
 
 // Main plugin options schema
 export const MempalacePluginOptionsSchema = z.object({
@@ -30,6 +34,9 @@ export const MempalacePluginOptionsSchema = z.object({
 
   /** Disable auto-loading mempalace context on first message of each session */
   disableAutoLoad: z.boolean().default(false),
+
+  /** Persist wake-up context-load injection per OpenCode session, or keep process-local behavior. */
+  wakeUpInjection: WakeUpInjectionSchema,
 
   /** Disable auto-update check on session start */
   disableAutoUpdate: z.boolean().default(false),

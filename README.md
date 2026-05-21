@@ -87,10 +87,12 @@ First time opening a project? The plugin automatically:
 ### 3. **Smart Context Injection**
 
 ```
-[Session Start] → injects PALACE_PROTOCOL + wakeUp() memory
+[Session Start] → injects PALACE_PROTOCOL + wakeUp() memory once per OpenCode session
 [Message 2+]    → continues with context aware of previous work  
 [Compaction]    → injects diary reminder + wakeUp memory before context loss
 ```
+
+By default, the wake-up injection guard persists per OpenCode `sessionID`, so reopening an existing session after an OpenCode or plugin restart does not add another `[SYSTEM — MemPalace Context Load]` block. The guard stores only session metadata in `~/.mempalace/opencode-mempalace/state.json`, not memory content or transcript text.
 
 ### 4. **Background Auto-Mining**
 
@@ -144,6 +146,8 @@ Curated OpenCode session sync is disabled by default (`sessionSync.enabled: fals
   "plugin": [
     ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
       "disableAutoUpdate": true,
+      // Optional: use "once-per-process" to restore the previous in-memory guard.
+      // "wakeUpInjection": "once-per-session",
       "sessionSync": {
         "enabled": true,
         "requirePreview": true,
@@ -229,6 +233,7 @@ If you want identity context in wake-up output, create the file manually and kee
 | `disableMcp` | `boolean` | `false` | Skip auto-registering MCP server |
 | `disableProtocol` | `boolean` | `false` | Skip injecting PALACE_PROTOCOL |
 | `disableAutoLoad` | `boolean` | `false` | Skip auto-loading context |
+| `wakeUpInjection` | `"once-per-session" \| "once-per-process"` | `"once-per-session"` | Controls duplicate wake-up context injection. `once-per-session` persists a small guard record per OpenCode `sessionID` so reopened sessions do not get duplicate `[SYSTEM — MemPalace Context Load]` blocks after restart. `once-per-process` keeps the previous process-local behavior. |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
 | `palacePath` | `string` | unset | Override palace directory. When unset, live initialization checks use `<workspace>/.mempalace/palace`; set this to a shared palace path when using one global palace. |
 | `disableAutoMining` | `boolean` | `false` | Disable automatic mining/sync hooks. This disables both legacy automatic mining and curated auto-sync; manual curated sync tools remain available when `sessionSync.enabled` is `true`. |
@@ -237,7 +242,7 @@ If you want identity context in wake-up output, create the file manually and kee
 | `sessionSync.autoSync` | `boolean` | `false` | Use curated session sync for threshold, idle, and deleted-session hooks instead of legacy `mempalace mine` |
 | `sessionSync.autoSyncThreshold` | `number` | unset | Optional message threshold for curated auto-sync. Falls back to `threshold` when unset. |
 | `sessionSync.requirePreview` | `boolean` | `true` | Require ingest to use a previous preview result |
-| `sessionSync.discoveryMode` | `"auto" | "cli" | "sqlite"` | `"auto"` | Choose automatic discovery, configured CLI discovery, or SQLite discovery |
+| `sessionSync.discoveryMode` | `"auto" \| "cli" \| "sqlite"` | `"auto"` | Choose automatic discovery, configured CLI discovery, or SQLite discovery |
 | `sessionSync.limitSessions` | `number` | `3` | Maximum recent sessions to inspect during preview |
 | `sessionSync.limitCandidates` | `number` | `50` | Maximum candidates returned by preview |
 | `sessionSync.maxCandidateBytes` | `number` | `4000` | Maximum bytes stored per candidate preview |
@@ -245,13 +250,15 @@ If you want identity context in wake-up output, create the file manually and kee
 | `sessionSync.maxMessagesPerSession` | `number` | `1000` | Maximum messages read from one session |
 | `sessionSync.maxPartsPerMessage` | `number` | `200` | Maximum OpenCode text parts read from one message |
 | `sessionSync.maxRawExchangeBytes` | `number` | `100000` | Maximum raw normalized exchange size before preview candidate construction |
-| `sessionSync.projectWingStrategy` | `"plugin" | "skill" | "custom"` | `"plugin"` | Project wing naming: `plugin` → existing plugin-style `wing_<project-basename>` (for example `wing_opencode-mempalace`), `skill` → `opencode_mempalace`, `custom` → configured `projectWing` |
+| `sessionSync.projectWingStrategy` | `"plugin" \| "skill" \| "custom"` | `"plugin"` | Project wing naming: `plugin` → existing plugin-style `wing_<project-basename>` (for example `wing_opencode-mempalace`), `skill` → `opencode_mempalace`, `custom` → configured `projectWing` |
 | `sessionSync.projectWing` | `string` | unset | Required only when `projectWingStrategy` is `custom` |
 | `sessionSync.globalWing` | `string` | `"opencode_global"` | Wing for global/non-project session memories |
 | `sessionSync.statePath` | `string` | `~/.mempalace/opencode-session-sync/state.json` | Override the curated sync state file path |
 | `sessionSync.cliCommand` | `string[]` | unset | Command used for curated session `cli` discovery, or as an `auto` fallback when configured. This is separate from plugin-level `cliCommand`. |
 | `sessionSync.sqlitePath` | `string` | unset | Override the OpenCode SQLite database path; `auto` uses the default OpenCode database path when unset |
 | `sessionSync.palacePath` | `string` | unset | Override the MemPalace path used by curated session sync ingest; plugin-level `palacePath` is passed through when set |
+
+Wake-up injection guard state is stored at `~/.mempalace/opencode-mempalace/state.json`. It contains only the OpenCode session ID key, injection status (`loaded`, `empty`, or `initializing`), and `injectedAt`. Records marked `loaded` or `empty` suppress future injection for that session; `initializing` records allow retry after restart. The file is pruned to at most 1000 records and records no older than 90 days.
 
 ---
 
