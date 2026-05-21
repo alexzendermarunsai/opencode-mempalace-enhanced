@@ -11,7 +11,7 @@ import { autoSyncSession } from "./auto-sync.js";
 import { discoverSessions, discoverSessionsWithWarnings } from "./discovery.js";
 import { candidatesFromSessions } from "./export.js";
 import { isTransientNoise } from "./filters.js";
-import { ingestCandidates, memPalaceWriterEnv, parseMemPalaceToolResult } from "./ingest.js";
+import { buildCandidatePythonCommands, ingestCandidates, memPalaceWriterEnv, parseMemPalaceToolResult } from "./ingest.js";
 import { previewSessionSync, ingestSessionSync, statusSessionSync } from "./index.js";
 import { buildSessionMemoryText, extractFinalAssistantAnswer, normalizeSession, normalizeText, stableKey, stripSystemContext } from "./normalize.js";
 import { routeCandidate, projectWingFor } from "./routing.js";
@@ -299,20 +299,61 @@ describe("session sync", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("discovers a targeted sqlite session without applying recent-session limits first", async () => {
+  it("discovers a targeted sqlite session without applying project or recent-session limits first", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-target-"));
     const dbPath = path.join(dir, "opencode.db");
+    const otherDir = path.join(dir, "other-project");
     const db = new Database(dbPath);
     db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
     db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
     db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
     insertOpenCodeSqliteSession(db, "newer", dir, "Newer", 500, "Please implement newer durable memory.", "Newer durable memory done.");
-    insertOpenCodeSqliteSession(db, "target", dir, "Target", 100, "Please implement targeted durable memory.", "Targeted durable memory done.");
+    insertOpenCodeSqliteSession(db, "target", otherDir, "Target", 100, "Please implement targeted durable memory.", "Targeted durable memory done.");
     db.close();
 
     const config = { ...DEFAULT_SESSION_SYNC_CONFIG, discoveryMode: "sqlite" as const, sqlitePath: dbPath, limitSessions: 1 };
     expect((await discoverSessions(config, dir)).map((session) => session.id)).toEqual(["newer"]);
     expect((await discoverSessions(config, dir, { sessionId: "target" })).map((session) => session.id)).toEqual(["target"]);
+    const missing = await discoverSessionsWithWarnings(config, dir, { sessionId: "missing" });
+    expect(missing.sessions.length).toBe(0);
+    expect(missing.warnings.join("\n")).toContain("No SQLite session found for sessionId missing");
+    expect(missing.warnings.join("\n")).not.toContain("projectDir");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("discovers root-workspace sqlite sessions from absolute directories only", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-root-"));
+    const dbPath = path.join(dir, "opencode.db");
+    const db = new Database(dbPath);
+    db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
+    db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
+    db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
+    insertOpenCodeSqliteSession(db, "absolute-newer", path.join(dir, "newer"), "Absolute newer", 300, "Please implement newer absolute durable memory.", "Newer absolute durable memory done.");
+    insertOpenCodeSqliteSession(db, "relative-newest", "relative/project", "Relative newest", 400, "Please implement relative durable memory.", "Relative durable memory done.");
+    insertOpenCodeSqliteSession(db, "absolute-older", path.join(dir, "older"), "Absolute older", 200, "Please implement older absolute durable memory.", "Older absolute durable memory done.");
+    db.close();
+
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, discoveryMode: "sqlite" as const, sqlitePath: dbPath, limitSessions: 1 };
+    expect((await discoverSessions(config, "/")).map((session) => session.id)).toEqual(["absolute-newer"]);
+    const twoSessions = await discoverSessions({ ...config, limitSessions: 2 }, "/");
+    expect(twoSessions.map((session) => session.id)).toEqual(["absolute-newer", "absolute-older"]);
+    expect(twoSessions.map((session) => session.id)).not.toContain("relative-newest");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("warns when root-workspace sqlite discovery finds no absolute directories", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-root-miss-"));
+    const dbPath = path.join(dir, "opencode.db");
+    const db = new Database(dbPath);
+    db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
+    db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
+    db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
+    insertOpenCodeSqliteSession(db, "relative", "relative/project", "Relative", 300, "Please implement relative durable memory.", "Relative durable memory done.");
+    db.close();
+
+    const result = await discoverSessionsWithWarnings({ ...DEFAULT_SESSION_SYNC_CONFIG, discoveryMode: "sqlite" as const, sqlitePath: dbPath, limitSessions: 5 }, "/");
+    expect(result.sessions.length).toBe(0);
+    expect(result.warnings.join("\n")).toContain("No SQLite sessions found for root workspace /");
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -491,6 +532,37 @@ describe("session sync", () => {
     expect(parseMemPalaceToolResult('{"success": true, "drawer_id": "drawer_1"}')?.success).toBe(true);
     expect(parseMemPalaceToolResult('log line\n{"success": false, "error": "boom"}')?.error).toBe("boom");
     expect(parseMemPalaceToolResult('not json')).toBeNull();
+  });
+
+  it("builds portable Python candidates with env, uv, and venv priority", () => {
+    const homeDir = "/portable/home";
+    const envPython = "/custom/mempalace-python";
+    const uvPython = path.join(homeDir, ".local", "share", "uv", "tools", "mempalace", "bin", "python3");
+    const venvPython = path.join(homeDir, ".venvs", "mempalace", "bin", "python");
+    const venvPython3 = path.join(homeDir, ".venvs", "mempalace", "bin", "python3");
+    const existing = new Set([envPython, uvPython, venvPython, venvPython3]);
+
+    expect(buildCandidatePythonCommands({
+      env: { MEMPALACE_PYTHON: envPython },
+      homeDir,
+      exists: (filePath) => existing.has(filePath),
+    })).toEqual([envPython, uvPython, venvPython, venvPython3, "python3", "python"]);
+  });
+
+  it("filters nonexistent absolute Python candidates while keeping PATH commands", () => {
+    expect(buildCandidatePythonCommands({
+      env: { MEMPALACE_PYTHON: "/missing/mempalace-python" },
+      homeDir: "/portable/home",
+      exists: () => false,
+    })).toEqual(["python3", "python"]);
+  });
+
+  it("deduplicates Python candidates while preserving order", () => {
+    expect(buildCandidatePythonCommands({
+      env: { MEMPALACE_PYTHON: "python3" },
+      homeDir: "/portable/home",
+      exists: () => false,
+    })).toEqual(["python3", "python"]);
   });
 
   it("propagates configured palacePath to the Python writer environment", () => {

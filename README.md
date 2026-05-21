@@ -194,13 +194,15 @@ By default, all plugin-managed MemPalace operations use the global palace at `~/
 
 If MemPalace is installed in a virtualenv, configure the plugin-level CLI command used for live `status`, `wake-up`, `mine`, and `init` calls. The resolved palace path is also passed to the auto-registered MCP server and curated session-sync writer.
 
+Use your real absolute paths here. The plugin does not expand shell variables such as `$HOME` inside JSON config values.
+
 ```jsonc
 {
   "plugin": [
     ["/absolute/path/to/opencode-mempalace-enhanced/dist/index.js", {
       "disableAutoUpdate": true,
-      "cliCommand": ["/home/enterme2/.venvs/mempalace/bin/python", "-m", "mempalace"],
-      "palacePath": "/home/enterme2/.mempalace/palace"
+      "cliCommand": ["/absolute/path/to/.venvs/mempalace/bin/python", "-m", "mempalace"],
+      "palacePath": "/absolute/path/to/.mempalace/palace"
     }]
   ]
 }
@@ -231,7 +233,7 @@ If you want identity context in wake-up output, create the file manually and kee
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `mcpCommand` | `string[]` | `["python3", "-m", "mempalace.mcp_server"]` | Command to start the MCP server |
-| `cliCommand` | `string[]` | fallback chain: `mempalace`, `python3 -m mempalace`, `python -m mempalace` | Command prefix for the MemPalace CLI used by live `status`, `wake-up`, `mine`, and `init` calls. Example: `["/home/enterme2/.venvs/mempalace/bin/python", "-m", "mempalace"]`. |
+| `cliCommand` | `string[]` | fallback chain: `mempalace`, `python3 -m mempalace`, `python -m mempalace` | Command prefix for the MemPalace CLI used by live `status`, `wake-up`, `mine`, and `init` calls. Use a real absolute path when pointing at a virtualenv, for example `["/absolute/path/to/.venvs/mempalace/bin/python", "-m", "mempalace"]`. |
 | `disableMcp` | `boolean` | `false` | Skip auto-registering MCP server |
 | `disableProtocol` | `boolean` | `false` | Skip injecting PALACE_PROTOCOL |
 | `disableAutoLoad` | `boolean` | `false` | Skip auto-loading context |
@@ -310,11 +312,38 @@ Depending on the assistant and tool-routing setup, prompts like these may map to
 | `mempalace_session_sync_preview` | `sessionId?`, `limitSessions?`, `limitCandidates?` | Discovers candidate memories from the current OpenCode workspace without writing them. Preview output is intentionally bounded by limits, redacts common secret patterns, and uses configured wings. |
 | `mempalace_session_sync_ingest` | `previewId`, `candidateIds?`, `confirm: true` | Writes the selected preview candidates. `confirm` must be `true`. If `candidateIds` is omitted, ingest uses all candidates from the preview. |
 
+### Session sync Python discovery
+
+Curated ingest writes through a Python interpreter that can import `mempalace.mcp_server`. Discovery tries candidates in this order:
+
+1. `MEMPALACE_PYTHON`
+2. `$HOME/.local/share/uv/tools/mempalace/bin/python3`
+3. `$HOME/.venvs/mempalace/bin/python`
+4. `$HOME/.venvs/mempalace/bin/python3`
+5. `python3`
+6. `python`
+
+If ingest cannot find MemPalace, set `MEMPALACE_PYTHON` before starting OpenCode:
+
+```bash
+# uv tool install
+export MEMPALACE_PYTHON="$HOME/.local/share/uv/tools/mempalace/bin/python3"
+
+# virtualenv install
+export MEMPALACE_PYTHON="$HOME/.venvs/mempalace/bin/python"
+```
+
+Validate the interpreter directly:
+
+```bash
+"$MEMPALACE_PYTHON" -c "import mempalace.mcp_server; print('ok')"
+```
+
 ### Limitations
 
 - Curated auto-sync does not run from `process.on('exit')`. The exit handler intentionally skips legacy `mineSync` when auto-sync is enabled because curated sync is async and unsafe during process exit. Auto-sync relies on threshold, idle, and deleted-session hooks.
 - Auto-sync does not bulk backfill historical sessions; it targets the active session hook by `sessionId`. Use manual preview/ingest for selected older sessions. The default manual limits inspect up to 3 sessions and 50 candidates.
-- SQLite discovery is project-strict when a workspace is available; sessions from other directories are not used as fallback preview input.
+- Non-targeted SQLite discovery is project-strict when a workspace is available; sessions from other directories are not used as fallback preview input. Explicit targeted discovery with `sessionId` intentionally looks up by session ID only, to avoid false misses when OpenCode reports the workspace as `/`.
 - CLI discovery trusts the configured command output and is not additionally project-filtered unless that command itself returns project-scoped sessions.
 - Real OpenCode session discovery is best-effort. OpenCode storage and session formats may vary, so discovery and normalization can miss or skip sessions.
 - Preview output is bounded by `limitCandidates`, `maxCandidateBytes`, JSON/message/part caps, and raw exchange size; long or oversized inputs may be truncated or skipped with warnings.
