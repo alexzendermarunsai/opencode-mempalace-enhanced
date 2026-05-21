@@ -5,7 +5,6 @@
  * for better retry logic and debugging
  */
 
-import path from "node:path";
 import {
   runCommand,
   runCommandSync,
@@ -13,13 +12,14 @@ import {
 } from "./spawn.js";
 import { safeAsync, classifyInitError, isRetryableSpawnError } from "./shared/error-classifier.js";
 import { logWarn, logError } from "./shared/logger.js";
+import { resolvePalacePath, type PalaceMode } from "./config/palace.js";
 
 const CLI_TIMEOUT_MS = 5000;
 const MAX_RETRIES = 2;
 
 type FallbackCommand = { cmd: string; args: string[] };
 
-export type MempalaceCliOptions = { cliCommand?: string[]; palacePath?: string };
+export type MempalaceCliOptions = { cliCommand?: string[]; palacePath?: string; palaceMode?: PalaceMode };
 
 function buildCommandBases(options: MempalaceCliOptions = {}): FallbackCommand[] {
   const customCommand = options.cliCommand;
@@ -40,8 +40,9 @@ function withPalace(args: string[], palacePath?: string): string[] {
   return palacePath ? ["--palace", palacePath, ...args] : args;
 }
 
-function buildCommands(args: string[], options: MempalaceCliOptions = {}): FallbackCommand[] {
-  const cliArgs = withPalace(args, options.palacePath);
+function buildCommands(args: string[], options: MempalaceCliOptions = {}, workspaceDir?: string): FallbackCommand[] {
+  const resolvedPalacePath = resolvePalacePath({ ...options, workspaceDir }).palacePath;
+  const cliArgs = withPalace(args, resolvedPalacePath);
   return buildCommandBases(options).map((base) => ({
     cmd: base.cmd,
     args: [...base.args, ...cliArgs],
@@ -55,7 +56,7 @@ function buildMineCommands(
   options: MempalaceCliOptions = {},
 ): FallbackCommand[] {
   const mineArgs = ["mine", dir, "--mode", mode, "--wing", wing];
-  return buildCommands(mineArgs, options);
+  return buildCommands(mineArgs, options, dir);
 }
 
 /**
@@ -116,8 +117,7 @@ export function mineSync(dir: string, mode: string, wing: string, options: Mempa
  * Enhanced with error classification.
  */
 export async function isInitialized(dir: string, options: MempalaceCliOptions = {}): Promise<boolean> {
-  const palacePath = options.palacePath ?? path.join(dir, ".mempalace", "palace");
-  const commands = buildCommands(["status"], { ...options, palacePath });
+  const commands = buildCommands(["status"], options, dir);
 
   for (const { cmd, args } of commands) {
     const result = await safeAsync(
@@ -147,7 +147,7 @@ export async function isInitialized(dir: string, options: MempalaceCliOptions = 
  */
 export async function initialize(dir: string, options: MempalaceCliOptions = {}): Promise<void> {
   const initArgs = ["init", "--yes", dir];
-  const commands = buildCommands(initArgs, options);
+  const commands = buildCommands(initArgs, options, dir);
 
   for (const { cmd, args } of commands) {
     const result = await safeAsync(
@@ -175,14 +175,15 @@ const WAKEUP_CACHE_TTL_MS = 30000; // 30 seconds
  * Enhanced with caching and error classification.
  */
 export async function wakeUp(wing: string, options: MempalaceCliOptions = {}): Promise<string | null> {
+  const resolvedPalacePath = resolvePalacePath(options).palacePath;
   // Check cache first
-  const cacheKey = JSON.stringify({ wing, cliCommand: options.cliCommand ?? null, palacePath: options.palacePath ?? null });
+  const cacheKey = JSON.stringify({ wing, cliCommand: options.cliCommand ?? null, palacePath: resolvedPalacePath });
   const cached = wakeUpCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < WAKEUP_CACHE_TTL_MS) {
     return cached.result;
   }
 
-  const commands = buildCommands(["wake-up", "--wing", wing], options);
+  const commands = buildCommands(["wake-up", "--wing", wing], { ...options, palacePath: resolvedPalacePath });
 
   for (const { cmd, args } of commands) {
     const result = await safeAsync(

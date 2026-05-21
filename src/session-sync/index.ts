@@ -86,6 +86,7 @@ export function statusSessionSync(config: SessionSyncConfig) {
     autoSync: config.autoSync,
     mode,
     ...(config.autoSyncThreshold !== undefined ? { autoSyncThreshold: config.autoSyncThreshold } : {}),
+    ...(config.palacePath !== undefined ? { palacePath: config.palacePath } : {}),
     statePath: config.statePath ?? defaultStatePath(),
     lastPreview: state.lastPreview ? { previewId: state.lastPreview.previewId, createdAt: state.lastPreview.createdAt } : undefined,
     processedCount: Object.keys(state.processed).length,

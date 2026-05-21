@@ -9,7 +9,7 @@ import { isInitialized, initialize, type MempalaceCliOptions } from "./mempalace
 import { getWingFromPath, isEmptyWorkspace } from "./shared/utils.js";
 import { log, logWarn, logError, flushSync } from "./shared/logger.js";
 import { runCommand } from "./spawn.js";
-import { parsePluginOptions, type MempalacePluginOptions, DEFAULT_MCP_COMMAND } from "./config/index.js";
+import { parsePluginOptions, DEFAULT_MCP_COMMAND, resolvePalacePath } from "./config/index.js";
 import { createHooks } from "./hooks/index.js";
 import { createPluginDispose } from "./features/plugin-dispose.js";
 import { createUpdateNotification } from "./features/update-notification.js";
@@ -57,11 +57,20 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
   }
 
   const autoMiningEnabled = !opts.disableAutoMining;
+  const resolvedPalace = resolvePalacePath({
+    palacePath: opts.palacePath,
+    palaceMode: opts.palaceMode,
+    workspaceDir,
+  });
   const mempalaceCliOptions: MempalaceCliOptions = {
     cliCommand: opts.cliCommand,
-    palacePath: opts.palacePath,
+    palacePath: resolvedPalace.palacePath,
+    palaceMode: opts.palaceMode,
   };
-  const sessionSyncConfig = opts.palacePath ? { ...opts.sessionSync, palacePath: opts.palacePath } : opts.sessionSync;
+  const sessionSyncConfig = {
+    ...opts.sessionSync,
+    palacePath: resolvedPalace.palacePath,
+  };
   const miningThreshold = sessionSyncConfig.enabled && sessionSyncConfig.autoSync && sessionSyncConfig.autoSyncThreshold
     ? sessionSyncConfig.autoSyncThreshold
     : opts.threshold;
@@ -167,7 +176,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
             config.mcp.mempalace = {
               type: "local" as const,
               command: mcpCommand,
-              environment: opts.palacePath ? { MEMPALACE_PALACE_PATH: opts.palacePath } : {},
+              environment: { MEMPALACE_PALACE_PATH: resolvedPalace.palacePath },
             };
           }
         },

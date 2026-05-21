@@ -13,7 +13,7 @@ Zero-configuration setup. Just add the plugin and go.
 }
 ```
 
-**Use when**: You want the defaults (15 message threshold, auto-everything enabled).
+**Use when**: You want the defaults (global `~/.mempalace/palace`, 15 message threshold, auto-everything enabled).
 
 ---
 
@@ -63,7 +63,8 @@ Optimized for plugin development.
 | `disableProtocol` | `boolean` | `false` | Skip PALACE_PROTOCOL injection |
 | `disableAutoLoad` | `boolean` | `false` | Skip wakeUp injection |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
-| `palacePath` | `string` | (default) | Override palace directory |
+| `palaceMode` | `"global" \| "workspace"` | `"global"` | Use global `~/.mempalace/palace` or workspace `<workspace>/.mempalace/palace` when `palacePath` is unset |
+| `palacePath` | `string` | unset | Highest-priority palace directory override |
 | `disableAutoMining` | `boolean` | `false` | Disable background mining |
 | `threshold` | `number` | `15` | Messages before auto-mining |
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DEFAULT_SESSION_SYNC_CONFIG, SessionSyncConfigSchema } from "../session-sync/contracts.js";
 import type { WakeUpInjectionMode } from "../shared/wake-up-injection-state.js";
+import { PalaceModeSchema } from "./palace.js";
 
 /**
  * MemPalace Plugin Configuration Schemas
@@ -43,6 +44,9 @@ export const MempalacePluginOptionsSchema = z.object({
 
   /** Override the mempalace palace directory */
   palacePath: z.string().optional(),
+
+  /** Select the default palace location when palacePath is not set */
+  palaceMode: PalaceModeSchema.default("global"),
 
   /** Disable auto-mining on session idle / message threshold / shutdown */
   disableAutoMining: z.boolean().default(false),
@@ -94,3 +98,5 @@ export function parsePartialOptions(options: Record<string, unknown> = {}): Part
 
 // Default configuration export
 export const DEFAULT_MCP_COMMAND = ["python3", "-m", "mempalace.mcp_server"] as const;
+export { resolvePalacePath, defaultGlobalPalacePath, defaultWorkspacePalacePath } from "./palace.js";
+export type { PalaceMode, ResolvedPalacePath, ResolvePalacePathOptions } from "./palace.js";

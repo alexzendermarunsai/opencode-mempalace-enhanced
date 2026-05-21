@@ -4,6 +4,7 @@ import type { PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { defaultGlobalPalacePath } from "./config/index.js";
 
 describe("Plugin Integration", () => {
   let testDir: string;
@@ -81,6 +82,11 @@ describe("Plugin Integration", () => {
 
     it("should handle custom palacePath", async () => {
       const result = await plugin(mockInput, { palacePath: "/custom/path" });
+      expect(result).toBeDefined();
+    });
+
+    it("should handle workspace palaceMode", async () => {
+      const result = await plugin(mockInput, { palaceMode: "workspace" });
       expect(result).toBeDefined();
     });
 
@@ -252,7 +258,25 @@ describe("Plugin Integration", () => {
       expect(config.mcp?.mempalace).toBe(existingConfig);
     });
 
-    it("should set environment when palacePath provided", async () => {
+    it("should set global palace environment by default", async () => {
+      const result = await plugin(mockInput, {});
+      const configHook = result.config;
+      const config: { mcp?: { mempalace?: { environment?: Record<string, string> } } } = {};
+
+      await configHook?.(config);
+      expect(config.mcp?.mempalace?.environment?.MEMPALACE_PALACE_PATH).toBe(defaultGlobalPalacePath());
+    });
+
+    it("should set workspace palace environment when palaceMode is workspace", async () => {
+      const result = await plugin(mockInput, { palaceMode: "workspace" });
+      const configHook = result.config;
+      const config: { mcp?: { mempalace?: { environment?: Record<string, string> } } } = {};
+
+      await configHook?.(config);
+      expect(config.mcp?.mempalace?.environment?.MEMPALACE_PALACE_PATH).toBe(path.join(testDir, ".mempalace", "palace"));
+    });
+
+    it("should let palacePath override palaceMode environment", async () => {
       const result = await plugin(mockInput, { palacePath: "/custom/palace" });
       const configHook = result.config;
       const config: { mcp?: { mempalace?: { environment?: Record<string, string> } } } = {};

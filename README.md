@@ -57,7 +57,7 @@ bun run build
 
 > Enhanced fork of [nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace) — thank you to the original author for the foundational plugin. This fork adds curated session sync, project-strict discovery, secret redaction, and hardened state handling.
 >
-> If you already have MemPalace MCP configured manually in your OpenCode config, add `"disableMcp": true` to avoid duplicate registration.
+> If you already have MemPalace MCP configured manually in your OpenCode config, add `"disableMcp": true` to avoid duplicate registration. Make sure that manual MCP config uses the same `MEMPALACE_PALACE_PATH` as your plugin `palacePath`/`palaceMode` if you need one consistent palace.
 >
 > Package metadata currently retains the upstream npm name/repository. Use the local `dist/index.js` path for this fork unless the metadata is updated for publishing.
 
@@ -79,7 +79,7 @@ Memories never leak between projects. Context is automatically loaded when you s
 ### 2. **Zero-Config Auto-Initialization**
 
 First time opening a project? The plugin automatically:
-- Detects if palace exists
+- Detects if the configured palace exists (global `~/.mempalace/palace` by default)
 - Initializes it in background if needed
 - Loads existing context via `wakeUp()`
 - Starts tracking for mining
@@ -190,7 +190,9 @@ Use this if you want curated session sync to write project memories with the sam
 
 ### Use a specific MemPalace CLI and palace path
 
-If MemPalace is installed in a virtualenv, configure the plugin-level CLI command used for live `status`, `wake-up`, `mine`, and `init` calls. Pairing it with a global `palacePath` keeps startup from repeatedly checking or initializing a project-local `.mempalace/palace` when you want one shared palace.
+By default, all plugin-managed MemPalace operations use the global palace at `~/.mempalace/palace`. Set `palaceMode: "workspace"` to use `<workspace>/.mempalace/palace` instead. Set `palacePath` when you need an explicit path; it has priority over `palaceMode`.
+
+If MemPalace is installed in a virtualenv, configure the plugin-level CLI command used for live `status`, `wake-up`, `mine`, and `init` calls. The resolved palace path is also passed to the auto-registered MCP server and curated session-sync writer.
 
 ```jsonc
 {
@@ -235,7 +237,8 @@ If you want identity context in wake-up output, create the file manually and kee
 | `disableAutoLoad` | `boolean` | `false` | Skip auto-loading context |
 | `wakeUpInjection` | `"once-per-session" \| "once-per-process"` | `"once-per-session"` | Controls duplicate wake-up context injection. `once-per-session` persists a small guard record per OpenCode `sessionID` so reopened sessions do not get duplicate `[SYSTEM — MemPalace Context Load]` blocks after restart. `once-per-process` keeps the previous process-local behavior. |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
-| `palacePath` | `string` | unset | Override palace directory. When unset, live initialization checks use `<workspace>/.mempalace/palace`; set this to a shared palace path when using one global palace. |
+| `palaceMode` | `"global" \| "workspace"` | `"global"` | Select the default palace directory when `palacePath` is unset. `global` resolves to `~/.mempalace/palace`; `workspace` resolves to `<workspace>/.mempalace/palace`. |
+| `palacePath` | `string` | unset | Highest-priority palace directory override. When unset, the plugin uses `palaceMode`. The resolved path is passed to live CLI calls, auto-registered MCP config, and curated session-sync ingest. |
 | `disableAutoMining` | `boolean` | `false` | Disable automatic mining/sync hooks. This disables both legacy automatic mining and curated auto-sync; manual curated sync tools remain available when `sessionSync.enabled` is `true`. |
 | `threshold` | `number` | `15` | Messages before legacy auto-mining; also used as the curated auto-sync fallback when `sessionSync.autoSyncThreshold` is unset |
 | `sessionSync.enabled` | `boolean` | `false` | Enable curated OpenCode session sync preview/ingest tools; status is always available |
@@ -256,7 +259,7 @@ If you want identity context in wake-up output, create the file manually and kee
 | `sessionSync.statePath` | `string` | `~/.mempalace/opencode-session-sync/state.json` | Override the curated sync state file path |
 | `sessionSync.cliCommand` | `string[]` | unset | Command used for curated session `cli` discovery, or as an `auto` fallback when configured. This is separate from plugin-level `cliCommand`. |
 | `sessionSync.sqlitePath` | `string` | unset | Override the OpenCode SQLite database path; `auto` uses the default OpenCode database path when unset |
-| `sessionSync.palacePath` | `string` | unset | Override the MemPalace path used by curated session sync ingest; plugin-level `palacePath` is passed through when set |
+| `sessionSync.palacePath` | `string` | unset | (Backward-compat only.) Always overridden by the plugin-level resolved palace path. Use top-level `palacePath` or `palaceMode` instead. |
 
 Wake-up injection guard state is stored at `~/.mempalace/opencode-mempalace/state.json`. It contains only the OpenCode session ID key, injection status (`loaded`, `empty`, or `initializing`), and `injectedAt`. Records marked `loaded` or `empty` suppress future injection for that session; `initializing` records allow retry after restart. The file is pruned to at most 1000 records and records no older than 90 days.
 
@@ -299,7 +302,7 @@ Depending on the assistant and tool-routing setup, prompts like these may map to
 
 ### Curated sync tool reference
 
-`mempalace_session_sync_status` is always available. It reports `mode` (`disabled`, `manual`, or `curated-auto-sync`), `autoSync`, and the configured `autoSyncThreshold` when set. `sessionSync.enabled` enables the curated sync preview and ingest tools.
+`mempalace_session_sync_status` is always available. It reports `mode` (`disabled`, `manual`, or `curated-auto-sync`), `autoSync`, the effective `palacePath`, and the configured `autoSyncThreshold` when set. `sessionSync.enabled` enables the curated sync preview and ingest tools.
 
 | Tool | Args | Notes |
 |---|---|---|
