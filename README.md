@@ -220,6 +220,20 @@ Curated sync does not replace `mempalace mine` or live auto-mining. It is intend
 5. Run `mempalace_session_sync_ingest` with the `previewId`, optional `candidateIds`, and `confirm: true`.
 6. Rerun the same ingest request if needed; already-ingested candidates should report as skipped.
 
+### Natural language triggers
+
+You don't need to type tool names manually. Say any of these and the assistant will run the right tool:
+
+| Say this | Runs |
+|---|---|
+| `show session sync status` | `mempalace_session_sync_status` |
+| `preview session memories` | `mempalace_session_sync_preview` |
+| `sync this session's memory` | preview → ingest |
+| `ingest those candidates` | `mempalace_session_sync_ingest` |
+| `remember this session` | preview → ingest |
+| `save session highlights` | preview → ingest |
+| `what's in the project memory` | `mempalace_session_sync_status` |
+
 ### Curated sync tool reference
 
 `mempalace_session_sync_status` is always available. `mempalace_session_sync_preview` and `mempalace_session_sync_ingest` are available only when `sessionSync.enabled` is `true`.
