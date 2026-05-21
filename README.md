@@ -55,7 +55,7 @@ bun run build
 # 5. Restart OpenCode
 ```
 
-> Fork of [nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace) with curated session sync, project-strict discovery, secret redaction, and hardened state handling.
+> Enhanced fork of [nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace) — thank you to the original author for the foundational plugin. This fork adds curated session sync, project-strict discovery, secret redaction, and hardened state handling.
 >
 > If you already have MemPalace MCP configured manually in your OpenCode config, add `"disableMcp": true` to avoid duplicate registration.
 >
@@ -368,6 +368,8 @@ bun run check
 - **[MemPalace/mempalace](https://github.com/MemPalace/mempalace)** — The MemPalace memory system architecture, AAAK dialect, and Python implementation. This plugin is just the OpenCode integration layer.
 
 - **[option-K/opencode-plugin-mempalace](https://github.com/option-K/opencode-plugin-mempalace)** — The pioneering OpenCode plugin that established the patterns for wakeUp, background mining, and 3-state initialization. We ported and extended these concepts.
+
+- **[nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace)** — The original OpenCode-MemPalace plugin that this enhanced fork builds upon.
 
 - **[OpenCode](https://opencode.ai)** — The AI terminal that makes plugins like this possible.
 
