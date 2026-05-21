@@ -16,8 +16,8 @@ OpenCode plugin integrating [MemPalace](https://github.com/MemPalace/mempalace) 
 | **Project-scoped memory** | ✅ Automatic per-workspace | ❌ Global only |
 | **Auto-initialization** | ✅ Palace auto-created | ❌ Manual setup |
 | **Context injection** | ✅ wakeUp() loads L0+L1 memory | ❌ Manual tool calls |
-| **Background mining** | ✅ Idle/threshold hooks, plus legacy exit trigger | ❌ None or manual |
-| **MCP Tools** | ✅ 19 native tools | ❌ CLI only |
+| **Background mining** | ✅ Threshold/idle/deleted hooks, plus legacy exit trigger | ❌ None or manual |
+| **MCP Tools** | ✅ Auto-registers MemPalace MCP plus plugin helper tools | ❌ CLI only |
 | **Auto-update** | ✅ Built-in | ❌ Manual |
 | **Curated session sync** | ✅ Manual preview/ingest or opt-in auto-sync | ❌ Not available |
 
@@ -58,6 +58,8 @@ bun run build
 > Fork of [nguyentamdat/opencode-mempalace](https://github.com/nguyentamdat/opencode-mempalace) with curated session sync, project-strict discovery, secret redaction, and hardened state handling.
 >
 > If you already have MemPalace MCP configured manually in your OpenCode config, add `"disableMcp": true` to avoid duplicate registration.
+>
+> Package metadata currently retains the upstream npm name/repository. Use the local `dist/index.js` path for this fork unless the metadata is updated for publishing.
 
 ---
 
@@ -87,7 +89,7 @@ First time opening a project? The plugin automatically:
 ```
 [Session Start] → injects PALACE_PROTOCOL + wakeUp() memory
 [Message 2+]    → continues with context aware of previous work  
-[Compaction]    → rescues critical memory before context loss
+[Compaction]    → injects diary reminder + wakeUp memory before context loss
 ```
 
 ### 4. **Background Auto-Mining**
@@ -98,22 +100,22 @@ Your conversations are automatically saved:
 - **Session deleted**: Cleanup trigger
 - **Process exit**: Emergency sync save on Ctrl+C for legacy live mining only
 
-### 5. **19 Native MCP Tools**
+### 5. **MCP and Plugin Helper Tools**
 
-Full MemPalace integration without CLI:
+By default, the plugin auto-registers the external MemPalace Python MCP server. The available MemPalace tool set depends on the installed MemPalace version.
+
+This fork also adds plugin-native helper tools:
 
 | Tool | Description |
 |---|---|
-| `mempalace_status` | Palace overview |
-| `mempalace_search` | Semantic memory search |
-| `mempalace_kg_query` | Knowledge graph queries |
-| `mempalace_diary_read/write` | Session journaling |
-| `mempalace_add_drawer` | Store specific memories |
-| ...and 14 more |
+| `mempalace_check_diary` | Check whether a session diary entry has been written |
+| `mempalace_session_sync_status` | Show curated session sync status; always available |
+| `mempalace_session_sync_preview` | Preview curated OpenCode session memory candidates; available when `sessionSync.enabled` is `true` |
+| `mempalace_session_sync_ingest` | Ingest confirmed preview candidates; available when `sessionSync.enabled` is `true` |
 
 ### 6. **Built-in Auto-Update**
 
-Checks NPM registry on session start, auto-installs updates in background. Never miss improvements.
+Checks the NPM registry on session start and can auto-install updates in the background on a best-effort basis.
 
 ### 7. **Opt-In Curated Session Sync**
 
@@ -193,12 +195,12 @@ Use this if you want curated session sync to write project memories with the sam
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
 | `palacePath` | `string` | `~/.mempalace/palace` | Override palace directory |
 | `disableAutoMining` | `boolean` | `false` | Disable automatic mining/sync hooks. This disables both legacy automatic mining and curated auto-sync; manual curated sync tools remain available when `sessionSync.enabled` is `true`. |
-| `threshold` | `number` | `15` | Messages before auto-mining |
+| `threshold` | `number` | `15` | Messages before legacy auto-mining; also used as the curated auto-sync fallback when `sessionSync.autoSyncThreshold` is unset |
 | `sessionSync.enabled` | `boolean` | `false` | Enable curated OpenCode session sync preview/ingest tools; status is always available |
 | `sessionSync.autoSync` | `boolean` | `false` | Use curated session sync for threshold, idle, and deleted-session hooks instead of legacy `mempalace mine` |
 | `sessionSync.autoSyncThreshold` | `number` | unset | Optional message threshold for curated auto-sync. Falls back to `threshold` when unset. |
 | `sessionSync.requirePreview` | `boolean` | `true` | Require ingest to use a previous preview result |
-| `sessionSync.discoveryMode` | `"auto"` | `"auto"` | Discover OpenCode session files automatically |
+| `sessionSync.discoveryMode` | `"auto" | "cli" | "sqlite"` | `"auto"` | Choose automatic discovery, configured CLI discovery, or SQLite discovery |
 | `sessionSync.limitSessions` | `number` | `3` | Maximum recent sessions to inspect during preview |
 | `sessionSync.limitCandidates` | `number` | `50` | Maximum candidates returned by preview |
 | `sessionSync.maxCandidateBytes` | `number` | `4000` | Maximum bytes stored per candidate preview |
@@ -209,6 +211,10 @@ Use this if you want curated session sync to write project memories with the sam
 | `sessionSync.projectWingStrategy` | `"plugin" | "skill" | "custom"` | `"plugin"` | Project wing naming: `plugin` → existing plugin-style `wing_<project-basename>` (for example `wing_opencode-mempalace`), `skill` → `opencode_mempalace`, `custom` → configured `projectWing` |
 | `sessionSync.projectWing` | `string` | unset | Required only when `projectWingStrategy` is `custom` |
 | `sessionSync.globalWing` | `string` | `"opencode_global"` | Wing for global/non-project session memories |
+| `sessionSync.statePath` | `string` | `~/.mempalace/opencode-session-sync/state.json` | Override the curated sync state file path |
+| `sessionSync.cliCommand` | `string[]` | unset | Command used for `cli` discovery, or as an `auto` fallback when configured |
+| `sessionSync.sqlitePath` | `string` | unset | Override the OpenCode SQLite database path; `auto` uses the default OpenCode database path when unset |
+| `sessionSync.palacePath` | `string` | unset | Override the MemPalace path used by curated session sync ingest; plugin-level `palacePath` is passed through when set |
 
 ---
 
@@ -218,7 +224,7 @@ The plugin has three memory modes:
 
 | Mode | Default | When it runs | What it does |
 |---|---:|---|---|
-| **Legacy live mining** | On | During the current OpenCode session through threshold, idle, deleted-session, process-exit, and compaction hooks | Keeps current project context fresh automatically using legacy `mempalace mine`. This remains the default automatic path. |
+| **Legacy live mining** | On | During the current OpenCode session through threshold, idle, deleted-session, and process-exit hooks | Keeps current project context fresh automatically using legacy `mempalace mine`. This remains the default automatic path. |
 | **Manual curated sync** | Off | When `sessionSync.enabled` is `true` and you call the sync tools manually | Finds candidate memories from OpenCode sessions, shows a preview, and ingests confirmed candidates. Manual preview/ingest works independently from auto-sync state. |
 | **Curated auto-sync** | Off | When `sessionSync.enabled` and `sessionSync.autoSync` are both `true` | Replaces legacy threshold, idle, and deleted-session mining hooks with curated session sync. It uses targeted discovery by `sessionId`, redaction/filtering/routing/idempotency, and writes drawers through `tool_add_drawer`. |
 
@@ -233,9 +239,9 @@ Set `disableAutoMining: true` to disable both legacy automatic mining and curate
 5. Run `mempalace_session_sync_ingest` with the `previewId`, optional `candidateIds`, and `confirm: true`.
 6. Rerun the same ingest request if needed; already-ingested candidates should report as skipped.
 
-### Natural language triggers
+### Example prompts
 
-You don't need to type tool names manually. Say any of these and the assistant will run the right tool:
+Depending on the assistant and tool-routing setup, prompts like these may map to the related tools:
 
 | Say this | Runs |
 |---|---|
@@ -262,6 +268,7 @@ You don't need to type tool names manually. Say any of these and the assistant w
 - Curated auto-sync does not run from `process.on('exit')`. The exit handler intentionally skips legacy `mineSync` when auto-sync is enabled because curated sync is async and unsafe during process exit. Auto-sync relies on threshold, idle, and deleted-session hooks.
 - Auto-sync does not bulk backfill historical sessions; it targets the active session hook by `sessionId`. Use manual preview/ingest for selected older sessions. The default manual limits inspect up to 3 sessions and 50 candidates.
 - SQLite discovery is project-strict when a workspace is available; sessions from other directories are not used as fallback preview input.
+- CLI discovery trusts the configured command output and is not additionally project-filtered unless that command itself returns project-scoped sessions.
 - Real OpenCode session discovery is best-effort. OpenCode storage and session formats may vary, so discovery and normalization can miss or skip sessions.
 - Preview output is bounded by `limitCandidates`, `maxCandidateBytes`, JSON/message/part caps, and raw exchange size; long or oversized inputs may be truncated or skipped with warnings.
 - Common secret forms (Bearer tokens, GitHub/OpenAI/AWS keys, private keys, and env-style secret assignments) are redacted in preview content before ingest.
@@ -276,8 +283,8 @@ This plugin is an **evolution** of the excellent [option-K/opencode-plugin-mempa
 
 | Addition | Benefit |
 |----------|---------|
-| **MCP Server Integration** | 19 native tools vs CLI-only |
-| **Auto-update mechanism** | Self-updating plugin |
+| **MCP Server Integration** | Auto-registers the external MemPalace Python MCP server and adds plugin helper tools |
+| **Auto-update mechanism** | Best-effort update check |
 | **Diary tracking** | Session journaling with reminders |
 | **Bun ecosystem** | Faster builds, no execa dependency |
 | **Security hardening** | Path validation, length limits |
@@ -326,7 +333,7 @@ bun run check
 
 ## 📄 License
 
-MIT © [nguyentamdat](https://github.com/nguyentamdat)
+MIT, matching `package.json`. Add or verify a root `LICENSE` file before redistribution.
 
 ---
 
