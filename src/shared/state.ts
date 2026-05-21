@@ -41,6 +41,11 @@ export class StateManager {
     this.counts.set(sessionId, 0);
   }
 
+  /** Mark a session as still pending after a failed deferred operation. */
+  markPending(sessionId: string): void {
+    this.counts.set(sessionId, Math.max(1, this.counts.get(sessionId) ?? 0));
+  }
+
   /**
    * Returns all session IDs that have pending messages AND are not currently
    * locked for mining. Used by exit handlers to flush unsaved state.

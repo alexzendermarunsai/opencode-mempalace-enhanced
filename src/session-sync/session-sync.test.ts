@@ -7,6 +7,7 @@ import plugin from "../index.js";
 import { parsePluginOptions } from "../config/index.js";
 import type { RawSession } from "./contracts.js";
 import { DEFAULT_SESSION_SYNC_CONFIG, PreviewArgsSchema } from "./contracts.js";
+import { autoSyncSession } from "./auto-sync.js";
 import { discoverSessions, discoverSessionsWithWarnings } from "./discovery.js";
 import { candidatesFromSessions } from "./export.js";
 import { isTransientNoise } from "./filters.js";
@@ -15,6 +16,9 @@ import { previewSessionSync, ingestSessionSync } from "./index.js";
 import { buildSessionMemoryText, extractFinalAssistantAnswer, normalizeSession, normalizeText, stableKey, stripSystemContext } from "./normalize.js";
 import { routeCandidate, projectWingFor } from "./routing.js";
 import { emptyState, loadState, saveState } from "./state.js";
+import { StateManager } from "../shared/state.js";
+import { createHooks, shouldResetCountAfterAutoSync } from "../hooks/index.js";
+import { createPluginDispose } from "../features/plugin-dispose.js";
 
 function sampleSession(text = "Please implement the durable backend plan for this project."): RawSession {
   return {
@@ -54,6 +58,8 @@ describe("session sync", () => {
   it("has safe config defaults and preserves disabled behavior", async () => {
     const parsed = parsePluginOptions({});
     expect(parsed.sessionSync.enabled).toBe(false);
+    expect(parsed.sessionSync.autoSync).toBe(false);
+    expect(parsed.sessionSync.autoSyncThreshold).toBeUndefined();
     expect(parsed.sessionSync.requirePreview).toBe(true);
     expect(parsed.sessionSync.globalWing).toBe("opencode_global");
 
@@ -245,6 +251,41 @@ describe("session sync", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("discovers a targeted sqlite session without applying recent-session limits first", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-target-"));
+    const dbPath = path.join(dir, "opencode.db");
+    const db = new Database(dbPath);
+    db.run('create table "session" (id text primary key, directory text, title text, time_updated integer)');
+    db.run("create table message (id text primary key, session_id text, time_created integer, time_updated integer, data text)");
+    db.run("create table part (id text primary key, message_id text, session_id text, time_created integer, data text)");
+    insertOpenCodeSqliteSession(db, "newer", dir, "Newer", 500, "Please implement newer durable memory.", "Newer durable memory done.");
+    insertOpenCodeSqliteSession(db, "target", dir, "Target", 100, "Please implement targeted durable memory.", "Targeted durable memory done.");
+    db.close();
+
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, discoveryMode: "sqlite" as const, sqlitePath: dbPath, limitSessions: 1 };
+    expect((await discoverSessions(config, dir)).map((session) => session.id)).toEqual(["newer"]);
+    expect((await discoverSessions(config, dir, { sessionId: "target" })).map((session) => session.id)).toEqual(["target"]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("filters JSON fallback by exact targeted session before recent-session limit", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-json-target-"));
+    const opencodeDir = path.join(dir, ".opencode");
+    fs.mkdirSync(opencodeDir);
+    const newer = path.join(opencodeDir, "newer.json");
+    const target = path.join(opencodeDir, "target.json");
+    fs.writeFileSync(newer, JSON.stringify({ ...sampleSession("Please implement newer durable JSON memory."), id: "newer", projectDir: dir }));
+    fs.writeFileSync(target, JSON.stringify({ ...sampleSession("Please implement targeted durable JSON memory."), id: "target", projectDir: dir }));
+    const now = Date.now() / 1000;
+    fs.utimesSync(target, now - 100, now - 100);
+    fs.utimesSync(newer, now, now);
+
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, sqlitePath: path.join(dir, "missing.db"), limitSessions: 1 };
+    expect((await discoverSessions(config, dir)).map((session) => session.id)).toEqual(["newer"]);
+    expect((await discoverSessions(config, dir, { sessionId: "target" })).map((session) => session.id)).toEqual(["target"]);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it("applies sqlite message and part caps", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-sqlite-caps-"));
     const dbPath = path.join(dir, "opencode.db");
@@ -350,6 +391,41 @@ describe("session sync", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it("auto-sync ingests idempotently and preserves lastPreview", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-auto-"));
+    const statePath = path.join(dir, "state.json");
+    fs.mkdirSync(path.join(dir, ".opencode"));
+    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify({ ...sampleSession(), projectDir: dir }));
+    const config = { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, autoSync: true, statePath, sqlitePath: path.join(dir, "missing.db") };
+    const preview = await previewSessionSync(config, dir);
+    const before = loadState(statePath).lastPreview?.previewId;
+
+    const first = await autoSyncSession(config, dir, "s1", async () => ({ ok: true }));
+    expect(first.status).toBe("success");
+    expect(first.inserted).toBe(1);
+    expect(loadState(statePath).lastPreview?.previewId).toBe(before);
+    expect(loadState(statePath).lastPreview?.previewId).toBe(preview.previewId);
+
+    const second = await autoSyncSession(config, dir, "s1", async () => ({ ok: true }));
+    expect(second.status).toBe("success");
+    expect(second.inserted).toBe(0);
+    expect(second.skippedAlreadySeen).toBe(1);
+    expect(Object.keys(loadState(statePath).processed).length).toBe(1);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("auto-sync guards disabled config and reports writer failures without throwing", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-auto-fail-"));
+    fs.mkdirSync(path.join(dir, ".opencode"));
+    fs.writeFileSync(path.join(dir, ".opencode", "session.json"), JSON.stringify({ ...sampleSession(), projectDir: dir }));
+    const disabled = await autoSyncSession({ ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, autoSync: false }, dir, "s1", async () => ({ ok: true }));
+    expect(disabled.status).toBe("disabled");
+    const failed = await autoSyncSession({ ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, autoSync: true, statePath: path.join(dir, "state.json"), sqlitePath: path.join(dir, "missing.db") }, dir, "s1", async () => ({ ok: false, error: "writer boom" }));
+    expect(failed.status).toBe("failed");
+    expect(failed.failed[0].error).toContain("writer boom");
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
   it("records partial ingest failures only after successful writes", async () => {
     const state = emptyState();
     const exported = candidatesFromSessions([sampleSession("Please implement one durable project memory."), { ...sampleSession("Please implement another durable project memory."), id: "s2" }], DEFAULT_SESSION_SYNC_CONFIG, state, "/tmp/opencode-mempalace");
@@ -440,5 +516,70 @@ describe("session sync", () => {
     expect(processed.contentHash).toBeDefined();
     expect(processed.targetWing).toBe("wing_custom");
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("routes hooks to curated auto-sync and leaves pending count when session is not found", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "session-sync-hook-"));
+    const stateManager = new StateManager(1);
+    const hooks = createHooks({
+      sessionsSeen: new Set(),
+      diaryWritten: new Set(),
+      wing: "wing_hook",
+      workspaceDir: dir,
+      stateManager,
+      disableAutoLoad: true,
+      autoMiningEnabled: true,
+      sessionSyncConfig: { ...DEFAULT_SESSION_SYNC_CONFIG, enabled: true, autoSync: true, statePath: path.join(dir, "state.json"), sqlitePath: path.join(dir, "missing.db") },
+      ensureInitialized: async () => "ready",
+    });
+    await hooks.chatMessage({ sessionID: "missing" }, { parts: [{ type: "text", text: "hi" }] });
+    await new Promise((resolve) => setTimeout(resolve, 2150));
+    expect(stateManager.hasPendingMessages("missing")).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps pending counts for partial auto-sync failures", () => {
+    expect(shouldResetCountAfterAutoSync({
+      status: "partial_failure",
+      sessionId: "s1",
+      attempted: 2,
+      inserted: 1,
+      skippedAlreadySeen: 0,
+      failed: [{ idempotencyKey: "candidate_failed", error: "writer boom" }],
+      warnings: [],
+    })).toBe(false);
+    expect(shouldResetCountAfterAutoSync({
+      status: "success",
+      sessionId: "s1",
+      attempted: 1,
+      inserted: 1,
+      skippedAlreadySeen: 0,
+      failed: [],
+      warnings: [],
+    })).toBe(true);
+    expect(shouldResetCountAfterAutoSync({
+      status: "not_found",
+      sessionId: "s1",
+      attempted: 0,
+      inserted: 0,
+      skippedAlreadySeen: 0,
+      failed: [],
+      warnings: ["missing"],
+    })).toBe(false);
+  });
+
+  it("disableAutoMining removes event hook even when curated auto-sync is enabled", async () => {
+    const result = await plugin({ directory: os.tmpdir(), worktree: os.tmpdir() }, { disableAutoUpdate: true, disableAutoMining: true, sessionSync: { enabled: true, autoSync: true, statePath: path.join(os.tmpdir(), "session-sync-disabled-auto.json") } });
+    expect(result.event).toBeUndefined();
+  });
+
+  it("dispose intentionally skips exit flush in autoSync mode because curated sync is async", () => {
+    const stateManager = new StateManager();
+    stateManager.incrementAndCheck("dirty");
+    const dispose = createPluginDispose({ autoMiningEnabled: true, legacyMineSyncEnabled: false, stateManager, workspaceDir: os.tmpdir(), wing: "wing_dispose" });
+    dispose.flushDirtySessions();
+    expect(stateManager.hasPendingMessages("dirty")).toBe(true);
+    dispose.dispose();
+    expect(stateManager.hasPendingMessages("dirty")).toBe(true);
   });
 });

@@ -4,6 +4,7 @@ import { mineSync } from "../mempalace-cli.js";
 
 export interface DisposeContext {
   autoMiningEnabled: boolean;
+  legacyMineSyncEnabled?: boolean;
   stateManager: StateManager;
   workspaceDir: string;
   wing: string;
@@ -16,12 +17,17 @@ export interface DisposeFns {
 
 export function createPluginDispose(context: DisposeContext): DisposeFns {
   const { autoMiningEnabled, stateManager, workspaceDir, wing } = context;
+  const legacyMineSyncEnabled = context.legacyMineSyncEnabled ?? autoMiningEnabled;
   
   let isFlushing = false;
   let disposed = false;
 
   const flushDirtySessions = (): void => {
-    if (!autoMiningEnabled || isFlushing || disposed) return;
+    // Curated auto-sync is async and cannot safely run from process.on("exit").
+    // In autoSync mode callers pass legacyMineSyncEnabled=false so shutdown does
+    // not fall back to dirty legacy mining; threshold/idle hooks are responsible
+    // for curated writes before process exit.
+    if (!autoMiningEnabled || !legacyMineSyncEnabled || isFlushing || disposed) return;
     isFlushing = true;
     const dirty = stateManager.getDirtySessions();
     if (dirty.length > 0) {
@@ -44,7 +50,7 @@ export function createPluginDispose(context: DisposeContext): DisposeFns {
   };
 
   // Register exit handlers
-  if (autoMiningEnabled) {
+  if (autoMiningEnabled && legacyMineSyncEnabled) {
     process.on("exit", flushDirtySessions);
     process.on("SIGINT", () => {
       flushDirtySessions();
