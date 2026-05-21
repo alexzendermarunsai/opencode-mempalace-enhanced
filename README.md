@@ -255,11 +255,11 @@ Depending on the assistant and tool-routing setup, prompts like these may map to
 
 ### Curated sync tool reference
 
-`mempalace_session_sync_status` is always available. `sessionSync.enabled` enables the curated sync preview and ingest tools.
+`mempalace_session_sync_status` is always available. It reports `mode` (`disabled`, `manual`, or `curated-auto-sync`), `autoSync`, and the configured `autoSyncThreshold` when set. `sessionSync.enabled` enables the curated sync preview and ingest tools.
 
 | Tool | Args | Notes |
 |---|---|---|
-| `mempalace_session_sync_status` | none | Shows whether curated sync is enabled and which defaults are active. |
+| `mempalace_session_sync_status` | none | Shows whether curated sync is enabled, its mode, auto-sync state, and active defaults. |
 | `mempalace_session_sync_preview` | `sessionId?`, `limitSessions?`, `limitCandidates?` | Discovers candidate memories from the current OpenCode workspace without writing them. Preview output is intentionally bounded by limits, redacts common secret patterns, and uses configured wings. |
 | `mempalace_session_sync_ingest` | `previewId`, `candidateIds?`, `confirm: true` | Writes the selected preview candidates. `confirm` must be `true`. If `candidateIds` is omitted, ingest uses all candidates from the preview. |
 

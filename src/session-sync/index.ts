@@ -80,8 +80,12 @@ export async function ingestSessionSync(config: SessionSyncConfig, _workspaceDir
 
 export function statusSessionSync(config: SessionSyncConfig) {
   const state = loadState(config.statePath);
+  const mode = !config.enabled ? "disabled" : config.autoSync ? "curated-auto-sync" : "manual";
   const base = {
     enabled: config.enabled,
+    autoSync: config.autoSync,
+    mode,
+    ...(config.autoSyncThreshold !== undefined ? { autoSyncThreshold: config.autoSyncThreshold } : {}),
     statePath: config.statePath ?? defaultStatePath(),
     lastPreview: state.lastPreview ? { previewId: state.lastPreview.previewId, createdAt: state.lastPreview.createdAt } : undefined,
     processedCount: Object.keys(state.processed).length,
