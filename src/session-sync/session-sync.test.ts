@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Database } from "bun:sqlite";
 import plugin from "../index.js";
-import { parsePluginOptions } from "../config/index.js";
+import { defaultGlobalPalacePath, parsePluginOptions, resolvePalacePath } from "../config/index.js";
 import type { RawSession } from "./contracts.js";
 import { DEFAULT_SESSION_SYNC_CONFIG, PreviewArgsSchema } from "./contracts.js";
 import { autoSyncSession } from "./auto-sync.js";
@@ -63,12 +63,18 @@ describe("session sync", () => {
     expect(parsed.sessionSync.requirePreview).toBe(true);
     expect(parsed.sessionSync.globalWing).toBe("opencode_global");
     expect(parsed.wakeUpInjection).toBe("once-per-session");
+    expect(parsed.palaceMode).toBe("global");
+    expect(resolvePalacePath({ workspaceDir: "/tmp/project" }).palacePath).toBe(defaultGlobalPalacePath());
+    expect(resolvePalacePath({ palaceMode: "workspace", workspaceDir: "/tmp/project" }).palacePath).toBe(path.join("/tmp/project", ".mempalace", "palace"));
+    expect(resolvePalacePath({ palacePath: "/custom/palace", palaceMode: "workspace", workspaceDir: "/tmp/project" }).palacePath).toBe("/custom/palace");
 
     const result = await plugin({ directory: os.tmpdir(), worktree: os.tmpdir() }, { disableAutoUpdate: true });
     expect(result.tool?.mempalace_session_sync_status).toBeDefined();
     expect(result.tool?.mempalace_session_sync_preview).toBeUndefined();
     const status = await result.tool?.mempalace_session_sync_status?.execute?.({}, { sessionID: "s" });
-    expect(String(status)).toContain("disabled");
+    const parsedStatus = JSON.parse(String(status));
+    expect(parsedStatus.message).toContain("disabled");
+    expect(parsedStatus.palacePath).toBe(defaultGlobalPalacePath());
   });
 
   it("parses top-level MemPalace CLI command separately from session sync CLI discovery", () => {

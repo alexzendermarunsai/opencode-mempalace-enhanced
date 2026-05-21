@@ -46,6 +46,7 @@ Following OMO's rule: **No catch-all files**. Each file has a single, clear resp
 
 **Key Files**:
 - `index.ts`: Zod schemas, parsing functions, default values. Imports `SessionSyncConfigSchema` and `DEFAULT_SESSION_SYNC_CONFIG` from `../session-sync/contracts.js`.
+- `palace.ts`: Central palace path resolver. `palacePath` is the highest-priority override; otherwise `palaceMode` selects global `~/.mempalace/palace` or workspace `<workspace>/.mempalace/palace`.
 
 **Patterns**:
 - Zod for runtime validation
@@ -147,7 +148,7 @@ discovery.ts → (RawSession[]) → export.ts → (MemoryCandidate[])
 | File | Lines | Purpose |
 |---|---|---|
 | `auto-update.ts` | 287 | NPM registry version check, cache invalidation, and `bun install` orchestration for self-update. Mirrors oh-my-openagent conventions. |
-| `mempalace-cli.ts` | 219 | MemPalace CLI wrapper with fallback command chain (mempalace → python3 -m mempalace → python -m mempalace). Exports: `initialize()`, `isInitialized()`, `mine()` (async), `mineSync()` (sync), `wakeUp()` (with 30s TTL cache). |
+| `mempalace-cli.ts` | 219 | MemPalace CLI wrapper with fallback command chain (mempalace → python3 -m mempalace → python -m mempalace). Resolves and passes `--palace` for live operations. Exports: `initialize()`, `isInitialized()`, `mine()` (async), `mineSync()` (sync), `wakeUp()` (with 30s TTL cache). |
 | `spawn.ts` | 171 | Runtime-agnostic process spawning — prefers `Bun.spawn`/`Bun.spawnSync`, falls back to `node:child_process`. Exports: `spawnAsync()`, `spawnSyncWrapper()`, `runCommand()` (async), `runCommandSync()`, `runCommandWithOutput()`. |
 | `index.ts` | 232 | Plugin entry point. Orchestrates config parsing, workspace setup, MCP registration, system prompt injection, hook creation, tool registration (mempalace_check_diary, mempalace_session_sync_status/preview/ingest). |
 
@@ -160,13 +161,15 @@ discovery.ts → (RawSession[]) → export.ts → (MemoryCandidate[])
 2. parsePluginOptions() validates configuration (including sessionSync)
 3. Setup workspace path with security validation
 4. Determine wing from workspace path
-5. Create StateManager with threshold (from sessionSync.autoSyncThreshold or opts.threshold)
-6. If `wakeUpInjection` is `once-per-session`, create the persistent wake-up injection state manager
-7. Define ensureInitialized() for 3-state init
-8. Create plugin dispose handlers (conditionally registers exit handlers)
-9. Fire-and-forget auto-update check (if not disabled)
-10. Create hooks via createHooks()
-11. Return plugin object with:
+5. Resolve the effective palace path (`palacePath` override, else `palaceMode` default)
+6. Thread the resolved palace path through CLI options, MCP environment, and session sync
+7. Create StateManager with threshold (from sessionSync.autoSyncThreshold or opts.threshold)
+8. If `wakeUpInjection` is `once-per-session`, create the persistent wake-up injection state manager
+9. Define ensureInitialized() for 3-state init
+10. Create plugin dispose handlers (conditionally registers exit handlers)
+11. Fire-and-forget auto-update check (if not disabled)
+12. Create hooks via createHooks()
+13. Return plugin object with:
     - config hook (MCP registration)
     - experimental.chat.system.transform (protocol + update notification)
     - chat.message hook
@@ -232,7 +235,7 @@ Return PreviewReport with candidates
   ↓
 User calls mempalace_session_sync_ingest(previewId, confirm: true)
   ↓
-ingest.ts → call Python tool_add_drawer for each candidate
+ingest.ts → call Python tool_add_drawer for each candidate using the resolved palace path
   ↓
 State saved (atomic JSON write with idempotency tracking)
 ```
@@ -261,7 +264,7 @@ Session sync config is defined in `src/session-sync/contracts.ts` via the `Sessi
 | statePath | string | unset | Override sync state file path |
 | cliCommand | string[] | unset | CLI command for session discovery |
 | sqlitePath | string | unset | Override OpenCode SQLite database path |
-| palacePath | string | unset | Override MemPalace path for ingest; inherits plugin-level palacePath when set |
+| palacePath | string | unset | (Backward-compat only.) Always overridden by the plugin-level resolved palace path. Use plugin-level `palacePath` or `palaceMode` instead. |
 
 ## Plugin Configuration Reference
 
@@ -276,7 +279,8 @@ Top-level plugin config is defined in `src/config/index.ts` and includes the liv
 | disableAutoLoad | boolean | false | Skip first-message wake-up context injection |
 | wakeUpInjection | `"once-per-session" \| "once-per-process"` | `"once-per-session"` | Duplicate-injection guard mode. `once-per-session` persists metadata by OpenCode `sessionID`; `once-per-process` uses only the in-memory `sessionsSeen` set. |
 | disableAutoUpdate | boolean | false | Skip update check |
-| palacePath | string | unset | Override palace directory for live operations |
+| palaceMode | `"global" \| "workspace"` | `"global"` | Select default palace path when `palacePath` is unset. `global` resolves to `~/.mempalace/palace`; `workspace` resolves to `<workspace>/.mempalace/palace`. |
+| palacePath | string | unset | Highest-priority palace directory override for plugin-managed operations |
 | disableAutoMining | boolean | false | Disable automatic mining/sync hooks |
 | threshold | number | 15 | Message threshold for legacy mining and fallback curated auto-sync threshold |
 | sessionSync | object | defaults below | Curated session sync configuration |
@@ -433,14 +437,15 @@ if (wing.length > 100) {
 | disableAutoLoad | boolean | false | Skip wakeUp injection |
 | wakeUpInjection | `"once-per-session" \| "once-per-process"` | `"once-per-session"` | Duplicate-injection guard mode. `once-per-session` persists metadata by OpenCode `sessionID`; `once-per-process` uses only the in-memory `sessionsSeen` set. |
 | disableAutoUpdate | boolean | false | Skip auto-update check |
-| palacePath | string | unset | Override palace directory |
+| palaceMode | `"global" \| "workspace"` | `"global"` | Select default palace directory when `palacePath` is unset |
+| palacePath | string | unset | Highest-priority palace directory override for plugin-managed operations |
 | disableAutoMining | boolean | false | Disable auto-mining (both legacy and curated) |
 | threshold | number | 15 | Messages before auto-mining trigger |
 | sessionSync | object | { enabled: false } | Curated session sync config (see [Session Sync Configuration](#session-sync-configuration)) |
 
 ### Environment Variables
 
-- `MEMPALACE_PALACE_PATH`: Override palace directory (set via MCP environment)
+- `MEMPALACE_PALACE_PATH`: Override palace directory (set by auto-registered MCP config from the resolved plugin palace path; set it manually if you provide your own `mcp.mempalace` config)
 - `MEMPALACE_PYTHON`: Preferred Python binary for ingest tool_add_drawer script
 - `XDG_CACHE_HOME`: Log file location
 - `XDG_CONFIG_HOME`: Auto-update config directory

@@ -25,6 +25,7 @@ import {
   wakeUp,
   _resetForTesting,
 } from "./mempalace-cli.js";
+import { defaultGlobalPalacePath } from "./config/index.js";
 
 function clearMock(fn: { mockClear?: () => void; mock?: { calls: unknown[] } }): void {
   if (fn.mockClear) fn.mockClear();
@@ -35,6 +36,7 @@ describe("Mempalace CLI", () => {
   let testDir: string;
   const palacePath = "/custom/palace";
   const cliCommand = ["/venv/bin/python", "-m", "mempalace"];
+  const globalPalacePath = defaultGlobalPalacePath();
 
   beforeEach(() => {
     testDir = path.join(os.tmpdir(), "mempalace-cli-test-" + Date.now());
@@ -57,8 +59,18 @@ describe("Mempalace CLI", () => {
   });
 
   describe("default fallbacks", () => {
-    it("checks project-local palace status with --palace before subcommand", async () => {
+    it("checks global palace status with --palace before subcommand", async () => {
       await isInitialized(testDir);
+
+      expect(runCommandWithOutputMock).toHaveBeenCalledWith(
+        "mempalace",
+        ["--palace", globalPalacePath, "status"],
+        5000,
+      );
+    });
+
+    it("supports workspace palace mode for project-local status checks", async () => {
+      await isInitialized(testDir, { palaceMode: "workspace" });
 
       expect(runCommandWithOutputMock).toHaveBeenCalledWith(
         "mempalace",
@@ -80,27 +92,37 @@ describe("Mempalace CLI", () => {
         "-m",
         "mempalace",
         "--palace",
-        path.join(testDir, ".mempalace", "palace"),
+        globalPalacePath,
         "status",
       ]);
     });
 
-    it("does not pass --palace to wake-up unless palacePath is configured", async () => {
+    it("passes the global default palace to wake-up", async () => {
       await wakeUp("wing_test");
 
       expect(runCommandWithOutputMock).toHaveBeenCalledWith(
         "mempalace",
-        ["wake-up", "--wing", "wing_test"],
+        ["--palace", globalPalacePath, "wake-up", "--wing", "wing_test"],
         5000,
       );
     });
 
-    it("does not pass --palace to mine unless palacePath is configured", async () => {
+    it("passes the global default palace to mine", async () => {
       await mine(testDir, "convos", "wing_test");
 
       expect(runCommandMock).toHaveBeenCalledWith(
         "mempalace",
-        ["mine", testDir, "--mode", "convos", "--wing", "wing_test"],
+        ["--palace", globalPalacePath, "mine", testDir, "--mode", "convos", "--wing", "wing_test"],
+        5000,
+      );
+    });
+
+    it("passes the workspace palace to mine in workspace mode", async () => {
+      await mine(testDir, "convos", "wing_test", { palaceMode: "workspace" });
+
+      expect(runCommandMock).toHaveBeenCalledWith(
+        "mempalace",
+        ["--palace", path.join(testDir, ".mempalace", "palace"), "mine", testDir, "--mode", "convos", "--wing", "wing_test"],
         5000,
       );
     });
