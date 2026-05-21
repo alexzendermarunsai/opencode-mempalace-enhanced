@@ -1,12 +1,11 @@
 # 🏛️ opencode-mempalace
 
-[![npm version](https://img.shields.io/npm/v/opencode-mempalace.svg)](https://www.npmjs.com/package/opencode-mempalace)
+> **Enhanced fork** — adds opt-in curated OpenCode session sync, project-strict discovery, secret redaction, and hardened state handling on top of the original plugin.
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/Built%20with-Bun-black?logo=bun)](https://bun.sh)
 
-> **AI Memory That Actually Works** — Project-scoped, persistent memory for OpenCode with zero-config setup.
-
-OpenCode plugin integrating [MemPalace](https://github.com/milla-jovovich/mempalace) lifetime memory system. Unlike other memory solutions, this provides **true project-scoped memory** with automatic context injection, background mining, and seamless MCP integration.
+OpenCode plugin integrating [MemPalace](https://github.com/MemPalace/mempalace) lifetime memory system. Unlike other memory solutions, this provides **true project-scoped memory** with automatic context injection, background mining, and seamless MCP integration.
 
 ---
 
@@ -26,6 +25,8 @@ OpenCode plugin integrating [MemPalace](https://github.com/milla-jovovich/mempal
 
 ## 🚀 Quick Start
 
+### Via npm (original plugin)
+
 ```bash
 # 1. Install mempalace CLI globally
 pip install mempalace
@@ -39,6 +40,35 @@ pip install mempalace
 # 3. Open any project folder in OpenCode
 # The plugin auto-initializes and starts tracking memory!
 ```
+
+### Via fork (with curated session sync)
+
+```bash
+# 1. Install mempalace CLI globally
+pip install mempalace
+
+# 2. Clone this fork
+git clone https://github.com/nguyentamdat/opencode-mempalace
+cd opencode-mempalace
+
+# 3. Build
+bun install
+bun run build
+
+# 4. Add the built plugin to OpenCode config
+# Edit ~/.config/opencode/opencode.jsonc
+{
+  "plugin": [
+    ["/absolute/path/to/opencode-mempalace/dist/index.js", {
+      "sessionSync": { "enabled": true }
+    }]
+  ]
+}
+
+# 5. Restart OpenCode
+```
+
+> For local development with manual MemPalace MCP registration, use `"disableMcp": true` and keep your existing `mcp.mempalace` block. See [Configuration](#-configuration) below.
 
 ---
 
@@ -108,6 +138,8 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
 
 ### Minimal plugin config
 
+Via npm (original package):
+
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 {
@@ -115,19 +147,50 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
 }
 ```
 
+Via fork (local build):
+
+```jsonc
+// ~/.config/opencode/opencode.jsonc
+{
+  "plugin": ["/absolute/path/to/opencode-mempalace/dist/index.js"]
+}
+```
+
+> When using the fork with manually configured MemPalace MCP (typical for local dev), add `"disableMcp": true` and `"disableAutoUpdate": true`.
+
 ### Enable curated session sync
+
+Via npm:
 
 ```jsonc
 // ~/.config/opencode/opencode.jsonc
 {
   "plugin": [
     ["opencode-mempalace", {
-      "threshold": 20,
-      "palacePath": "/custom/path",
-      "disableAutoLoad": false,
-      "disableAutoMining": false,
-      "disableAutoUpdate": false,
-      "disableMcp": false,
+      "sessionSync": {
+        "enabled": true,
+        "requirePreview": true,
+        "discoveryMode": "auto",
+        "limitSessions": 3,
+        "limitCandidates": 50,
+        "maxCandidateBytes": 4000,
+        "projectWingStrategy": "plugin",
+        "globalWing": "opencode_global"
+      }
+    }]
+  ]
+}
+```
+
+Via fork (local build):
+
+```jsonc
+// ~/.config/opencode/opencode.jsonc
+{
+  "plugin": [
+    ["/home/me/opencode-mempalace/dist/index.js", {
+      "disableMcp": true,
+      "disableAutoUpdate": true,
       "sessionSync": {
         "enabled": true,
         "requirePreview": true,
@@ -145,12 +208,31 @@ Curated OpenCode session sync is additive and manual. It is disabled by default 
 
 ### Skill-compatible wing naming
 
-Use this if you want curated session sync to write project memories with the same wing naming used by the MemPalace session-memory skill:
+Use this if you want curated session sync to write project memories with the same wing naming used by the MemPalace session-memory skill.
+
+Via npm:
 
 ```jsonc
 {
   "plugin": [
     ["opencode-mempalace", {
+      "sessionSync": {
+        "enabled": true,
+        "projectWingStrategy": "skill"
+      }
+    }]
+  ]
+}
+```
+
+Via fork (local build):
+
+```jsonc
+{
+  "plugin": [
+    ["/home/me/opencode-mempalace/dist/index.js", {
+      "disableMcp": true,
+      "disableAutoUpdate": true,
       "sessionSync": {
         "enabled": true,
         "projectWingStrategy": "skill"
@@ -275,7 +357,7 @@ bun run check
 
 ## 🙏 Credits & Shout Outs
 
-- **[milla-jovovich/mempalace](https://github.com/milla-jovovich/mempalace)** — The original MemPalace memory system architecture, AAAK dialect, and Python implementation. This plugin is just the OpenCode integration layer.
+- **[MemPalace/mempalace](https://github.com/MemPalace/mempalace)** — The MemPalace memory system architecture, AAAK dialect, and Python implementation. This plugin is just the OpenCode integration layer.
 
 - **[option-K/opencode-plugin-mempalace](https://github.com/option-K/opencode-plugin-mempalace)** — The pioneering OpenCode plugin that established the patterns for wakeUp, background mining, and 3-state initialization. We ported and extended these concepts.
 
