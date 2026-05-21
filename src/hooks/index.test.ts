@@ -14,6 +14,8 @@ import { StateManager } from "../shared/state.js";
 import { DEFAULT_SESSION_SYNC_CONFIG } from "../session-sync/contracts.js";
 import { WakeUpInjectionStateManager } from "../shared/wake-up-injection-state.js";
 import type { WakeUpInjectionMode } from "../shared/wake-up-injection-state.js";
+import type { WakeUpScope } from "../config/index.js";
+import { _resetSessionKindForTesting } from "../shared/session-kind.js";
 
 type InitState = "ready" | "initializing" | "empty";
 
@@ -35,13 +37,15 @@ describe("chat.message wake-up injection guard", () => {
     statePath = path.join(testDir, "state.json");
     clearMock(wakeUpMock);
     wakeUpMock.mockImplementation(async () => "Loaded project memory");
+    _resetSessionKindForTesting();
   });
 
   afterEach(() => {
     fs.rmSync(testDir, { recursive: true, force: true });
+    _resetSessionKindForTesting();
   });
 
-  function makeHooks(initState: InitState = "ready", mode: WakeUpInjectionMode = "once-per-session") {
+  function makeHooks(initState: InitState = "ready", mode: WakeUpInjectionMode = "once-per-session", scope: WakeUpScope = "primary-session") {
     return createHooks({
       sessionsSeen: new Set(),
       diaryWritten: new Set(),
@@ -54,6 +58,7 @@ describe("chat.message wake-up injection guard", () => {
       wakeUpInjectionMode: mode,
       wakeUpInjectionState: mode === "once-per-session" ? new WakeUpInjectionStateManager(statePath) : undefined,
       ensureInitialized: async () => initState,
+      wakeUpScope: scope,
     });
   }
 
@@ -105,12 +110,23 @@ describe("chat.message wake-up injection guard", () => {
     expect(wakeUpMock).not.toHaveBeenCalled();
   });
 
-  it("still injects a different session after restart", async () => {
+  it("skips wakeUp for second session when scope is primary-session", async () => {
     await makeHooks("ready").chatMessage({ sessionID: "s1" }, output("First"));
     clearMock(wakeUpMock);
 
     const different = output("Different");
     await makeHooks("ready").chatMessage({ sessionID: "s2" }, different);
+
+    expect(different.parts[0]?.text).toBe("Different");
+    expect(wakeUpMock).not.toHaveBeenCalled();
+  });
+
+  it("still injects full wake-up for second session when scope is all-sessions", async () => {
+    await makeHooks("ready", "once-per-session", "all-sessions").chatMessage({ sessionID: "s1" }, output("First"));
+    clearMock(wakeUpMock);
+
+    const different = output("Different");
+    await makeHooks("ready", "once-per-session", "all-sessions").chatMessage({ sessionID: "s2" }, different);
 
     expect(different.parts[0]?.text).toContain("[SYSTEM — MemPalace Context Load]");
     expect(wakeUpMock).toHaveBeenCalledTimes(1);

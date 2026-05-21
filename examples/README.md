@@ -62,6 +62,7 @@ Optimized for plugin development.
 | `disableMcp` | `boolean` | `false` | Skip MCP registration |
 | `disableProtocol` | `boolean` | `false` | Skip PALACE_PROTOCOL injection |
 | `disableAutoLoad` | `boolean` | `false` | Skip wakeUp injection |
+| `wakeUpScope` | `"primary-session" \| "all-sessions" \| "none"` | `"primary-session"` | Full wake-up context only for primary agents |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
 | `palaceMode` | `"global" \| "workspace"` | `"global"` | Use global `~/.mempalace/palace` or workspace `<workspace>/.mempalace/palace` when `palacePath` is unset |
 | `palacePath` | `string` | unset | Highest-priority palace directory override |

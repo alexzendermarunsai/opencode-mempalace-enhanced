@@ -19,6 +19,9 @@ const CliCommandSchema = z.array(z.string()).min(1);
 // Wake-up context load duplicate-injection behavior.
 const WakeUpInjectionSchema = z.enum(["once-per-session", "once-per-process"] satisfies [WakeUpInjectionMode, WakeUpInjectionMode]).default("once-per-session");
 
+const WakeUpScopeSchema = z.enum(["primary-session", "all-sessions", "none"]).default("primary-session");
+export type WakeUpScope = z.infer<typeof WakeUpScopeSchema>;
+
 // Main plugin options schema
 export const MempalacePluginOptionsSchema = z.object({
   /** Command array to start the mempalace MCP server */
@@ -38,6 +41,9 @@ export const MempalacePluginOptionsSchema = z.object({
 
   /** Persist wake-up context-load injection per OpenCode session, or keep process-local behavior. */
   wakeUpInjection: WakeUpInjectionSchema,
+
+  /** Control which sessions receive wake-up memory context injection */
+  wakeUpScope: WakeUpScopeSchema,
 
   /** Disable auto-update check on session start */
   disableAutoUpdate: z.boolean().default(false),

@@ -9,6 +9,7 @@
       "disableAutoUpdate": false,
       "palaceMode": "global",
       "palacePath": "/custom/path/to/palace",
+      "wakeUpScope": "primary-session",
       "disableAutoMining": false,
       "threshold": 20
     }]

@@ -87,12 +87,15 @@ First time opening a project? The plugin automatically:
 ### 3. **Smart Context Injection**
 
 ```
-[Session Start] → injects PALACE_PROTOCOL + wakeUp() memory once per OpenCode session
+[Session Start] → injects PALACE_PROTOCOL + wakeUp() memory once per primary session
+[Subagent Start] → injects a small hint to use MemPalace MCP tools instead of full context
 [Message 2+]    → continues with context aware of previous work  
 [Compaction]    → injects diary reminder + wakeUp memory before context loss
 ```
 
-By default, the wake-up injection guard persists per OpenCode `sessionID`, so reopening an existing session after an OpenCode or plugin restart does not add another `[SYSTEM — MemPalace Context Load]` block. The guard stores only session metadata in `~/.mempalace/opencode-mempalace/state.json`, not memory content or transcript text.
+By default (`wakeUpScope: "primary-session"`), full wake-up memory is only loaded for primary agent sessions. Subagent sessions receive a short hint and can pull memory on demand via MemPalace MCP tools.
+
+The wake-up injection guard persists per OpenCode `sessionID`, so reopening an existing session after an OpenCode or plugin restart does not add another `[SYSTEM — MemPalace Context Load]` block. The guard stores only session metadata in `~/.mempalace/opencode-mempalace/state.json`, not memory content or transcript text.
 
 ### 4. **Background Auto-Mining**
 
@@ -238,6 +241,7 @@ If you want identity context in wake-up output, create the file manually and kee
 | `disableProtocol` | `boolean` | `false` | Skip injecting PALACE_PROTOCOL |
 | `disableAutoLoad` | `boolean` | `false` | Skip auto-loading context |
 | `wakeUpInjection` | `"once-per-session" \| "once-per-process"` | `"once-per-session"` | Controls duplicate wake-up context injection. `once-per-session` persists a small guard record per OpenCode `sessionID` so reopened sessions do not get duplicate `[SYSTEM — MemPalace Context Load]` blocks after restart. `once-per-process` keeps the previous process-local behavior. |
+| `wakeUpScope` | `"primary-session" \| "all-sessions" \| "none"` | `"primary-session"` | Controls which sessions receive full `wakeUp()` memory context. `primary-session` loads context only for primary (built-in) agents; subagents get a small hint to use MemPalace MCP tools instead. `all-sessions` restores previous behavior (all sessions get full wake-up). `none` disables wake-up injection entirely (same as `disableAutoLoad`). |
 | `disableAutoUpdate` | `boolean` | `false` | Skip auto-update check |
 | `palaceMode` | `"global" \| "workspace"` | `"global"` | Select the default palace directory when `palacePath` is unset. `global` resolves to `~/.mempalace/palace`; `workspace` resolves to `<workspace>/.mempalace/palace`. |
 | `palacePath` | `string` | unset | Highest-priority palace directory override. When unset, the plugin uses `palaceMode`. The resolved path is passed to live CLI calls, auto-registered MCP config, and curated session-sync ingest. |

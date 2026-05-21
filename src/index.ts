@@ -165,6 +165,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     wakeUpInjectionState,
     mempalaceCliOptions,
     ensureInitialized,
+    wakeUpScope: opts.wakeUpScope,
   });
 
   return {
