@@ -1,9 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { IngestResult, MemPalaceWriter, MemoryCandidate, SyncState, WriteResult } from "./contracts.js";
 import { stableKey } from "./normalize.js";
 
 export type MemPalaceWriterOptions = { palacePath?: string };
+type PythonCommandEnv = { [key: string]: string | undefined; MEMPALACE_PYTHON?: string };
+export type BuildCandidatePythonCommandsOptions = {
+  env: PythonCommandEnv;
+  homeDir: string;
+  exists: (filePath: string) => boolean;
+};
 
 const ADD_DRAWER_SCRIPT = String.raw`
 import json
@@ -26,14 +34,27 @@ except Exception as exc:
     sys.exit(1)
 `;
 
-export function candidatePythonCommands(): string[] {
+export function buildCandidatePythonCommands({ env, homeDir, exists }: BuildCandidatePythonCommandsOptions): string[] {
   const commands = [
-    process.env.MEMPALACE_PYTHON,
-    existsSync("/home/enterme2/.venvs/mempalace/bin/python") ? "/home/enterme2/.venvs/mempalace/bin/python" : undefined,
+    env.MEMPALACE_PYTHON,
+    path.join(homeDir, ".local", "share", "uv", "tools", "mempalace", "bin", "python3"),
+    path.join(homeDir, ".venvs", "mempalace", "bin", "python"),
+    path.join(homeDir, ".venvs", "mempalace", "bin", "python3"),
     "python3",
     "python",
   ].filter((cmd): cmd is string => Boolean(cmd));
-  return Array.from(new Set(commands));
+
+  const seen = new Set<string>();
+  return commands.filter((command) => {
+    if (path.isAbsolute(command) && !exists(command)) return false;
+    if (seen.has(command)) return false;
+    seen.add(command);
+    return true;
+  });
+}
+
+export function candidatePythonCommands(): string[] {
+  return buildCandidatePythonCommands({ env: process.env, homeDir: os.homedir(), exists: existsSync });
 }
 
 export function parseMemPalaceToolResult(stdout: string): { success: boolean; error?: string; drawer_id?: string; reason?: string } | null {

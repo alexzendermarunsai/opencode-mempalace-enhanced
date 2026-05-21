@@ -135,14 +135,16 @@ async function discoverSqliteSessions(sqlitePath: string, config: SessionSyncCon
 function discoverOpenCodeSqliteSessions(db: { query: (sql: string) => { all: (...params: any[]) => unknown[] } }, sqlitePath: string, config: SessionSyncConfig, projectDir?: string, options: DiscoveryOptions = {}): DiscoveryResult {
   const warnings: string[] = [];
   const select = "select id, directory, title, time_updated from \"session\"";
-  const sessionRows = options.sessionId && projectDir
-    ? db.query(`${select} where id = ? and directory = ? order by time_updated desc limit 1`).all(options.sessionId, projectDir) as Array<Record<string, unknown>>
-    : options.sessionId
-      ? db.query(`${select} where id = ? order by time_updated desc limit 1`).all(options.sessionId) as Array<Record<string, unknown>>
+  const isRootWorkspace = projectDir === "/";
+  const sessionRows = options.sessionId
+    ? db.query(`${select} where id = ? order by time_updated desc limit 1`).all(options.sessionId) as Array<Record<string, unknown>>
+    : isRootWorkspace
+      ? db.query(`${select} where directory like '/%' order by time_updated desc limit ?`).all(config.limitSessions) as Array<Record<string, unknown>>
       : projectDir
         ? db.query(`${select} where directory = ? order by time_updated desc limit ?`).all(projectDir, config.limitSessions) as Array<Record<string, unknown>>
         : db.query(`${select} order by time_updated desc limit ?`).all(config.limitSessions) as Array<Record<string, unknown>>;
-  if (options.sessionId && sessionRows.length === 0) warnings.push(`No SQLite session found for sessionId ${options.sessionId}${projectDir ? ` and projectDir ${projectDir}` : ""}`);
+  if (options.sessionId && sessionRows.length === 0) warnings.push(`No SQLite session found for sessionId ${options.sessionId}`);
+  else if (isRootWorkspace && sessionRows.length === 0) warnings.push("No SQLite sessions found for root workspace / with absolute directories");
   else if (projectDir && sessionRows.length === 0) warnings.push(`No SQLite sessions found for projectDir ${projectDir}`);
 
   const sessions = sessionRows.map((session): RawSession | null => {
