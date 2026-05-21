@@ -7,6 +7,8 @@ import type { MempalaceCliOptions } from "../mempalace-cli.js";
 import type { SessionSyncConfig } from "../session-sync/contracts.js";
 import { autoSyncSession } from "../session-sync/auto-sync.js";
 import type { WakeUpInjectionMode, WakeUpInjectionStateManager, WakeUpInjectionStatus } from "../shared/wake-up-injection-state.js";
+import type { WakeUpScope } from "../config/index.js";
+import { shouldInjectWakeUp } from "../shared/session-kind.js";
 
 export interface HooksContext {
   sessionsSeen: Set<string>;
@@ -21,11 +23,12 @@ export interface HooksContext {
   wakeUpInjectionState?: WakeUpInjectionStateManager;
   mempalaceCliOptions?: MempalaceCliOptions;
   ensureInitialized: () => Promise<"ready" | "initializing" | "empty">;
+  wakeUpScope: WakeUpScope;
 }
 
 export interface CreatedHooks {
   systemTransform: (input: { sessionID?: string; model: unknown }, output: { system: string[] }) => Promise<void>;
-  chatMessage: (input: { sessionID: string; messageID?: string }, output: { parts: Array<{ type: string; text?: string; [key: string]: unknown }> }) => Promise<void>;
+  chatMessage: (input: { sessionID: string; messageID?: string; agent?: string }, output: { parts: Array<{ type: string; text?: string; [key: string]: unknown }> }) => Promise<void>;
   toolExecuteAfter: (input: { tool: string; sessionID: string; callID: string; args: unknown }) => Promise<void>;
   sessionCompacting: (input: { sessionID: string }, output: { context: string[]; prompt?: string }) => Promise<void>;
   event: (params: { event: unknown }) => Promise<void>;
@@ -38,7 +41,7 @@ export function shouldResetCountAfterAutoSync(result: Awaited<ReturnType<typeof 
 }
 
 export function createHooks(context: HooksContext): CreatedHooks {
-  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, wakeUpInjectionMode, wakeUpInjectionState, mempalaceCliOptions, ensureInitialized } = context;
+  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, wakeUpInjectionMode, wakeUpInjectionState, mempalaceCliOptions, ensureInitialized, wakeUpScope } = context;
   const useCuratedAutoSync = autoMiningEnabled && sessionSyncConfig.enabled && sessionSyncConfig.autoSync;
 
   const scheduleMining = (sessionID: string, resetLegacyCount: boolean): void => {
@@ -79,8 +82,11 @@ export function createHooks(context: HooksContext): CreatedHooks {
       // Only inject wakeUp on first message of session
       if (!disableAutoLoad && !sessionsSeen.has(input.sessionID)) {
         const usePersistentWakeUpGuard = wakeUpInjectionMode === "once-per-session" && wakeUpInjectionState;
+        const injectWakeUp = shouldInjectWakeUp(input.sessionID, wakeUpScope);
 
         if (usePersistentWakeUpGuard && wakeUpInjectionState.shouldSuppress(input.sessionID)) {
+          sessionsSeen.add(input.sessionID);
+        } else if (!injectWakeUp) {
           sessionsSeen.add(input.sessionID);
         } else {
           sessionsSeen.add(input.sessionID);

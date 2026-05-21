@@ -278,6 +278,7 @@ Top-level plugin config is defined in `src/config/index.ts` and includes the liv
 | disableProtocol | boolean | false | Skip PALACE protocol injection |
 | disableAutoLoad | boolean | false | Skip first-message wake-up context injection |
 | wakeUpInjection | `"once-per-session" \| "once-per-process"` | `"once-per-session"` | Duplicate-injection guard mode. `once-per-session` persists metadata by OpenCode `sessionID`; `once-per-process` uses only the in-memory `sessionsSeen` set. |
+| wakeUpScope | `"primary-session" \| "all-sessions" \| "none"` | `"primary-session"` | Controls which sessions receive full `wakeUp()` memory context. `primary-session` loads context only for built-in primary agents; subagents get a hint to use MemPalace MCP tools. |
 | disableAutoUpdate | boolean | false | Skip update check |
 | palaceMode | `"global" \| "workspace"` | `"global"` | Select default palace path when `palacePath` is unset. `global` resolves to `~/.mempalace/palace`; `workspace` resolves to `<workspace>/.mempalace/palace`. |
 | palacePath | string | unset | Highest-priority palace directory override for plugin-managed operations |
