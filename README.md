@@ -206,6 +206,20 @@ Do not confuse these command options:
 - `mcpCommand`: plugin-level command for starting the MemPalace MCP server.
 - `sessionSync.cliCommand`: curated session-sync discovery command for finding OpenCode sessions; it is not used to run the MemPalace CLI.
 
+### Optional global identity
+
+MemPalace can include L0 identity context from `~/.mempalace/identity.txt`. This file is optional, global, and personal; it is not project-scoped, and the plugin does not auto-create it. Project memory, live mining, manual curated sync, and curated auto-sync all work without it.
+
+If you want identity context in wake-up output, create the file manually and keep it high-level:
+
+```text
+# ~/.mempalace/identity.txt
+# Name: <what assistants should call you>
+# Working style: <brief collaboration preferences>
+# Global preferences: <stable preferences that apply across projects>
+# Privacy boundaries: <what should not be assumed, stored, or repeated>
+```
+
 ### Options
 
 | Option | Type | Default | Description |
