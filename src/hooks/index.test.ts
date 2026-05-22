@@ -59,6 +59,7 @@ describe("chat.message wake-up injection guard", () => {
       wakeUpInjectionState: mode === "once-per-session" ? new WakeUpInjectionStateManager(statePath) : undefined,
       ensureInitialized: async () => initState,
       wakeUpScope: scope,
+      projectWing: "wing_test",
     });
   }
 
@@ -69,6 +70,7 @@ describe("chat.message wake-up injection guard", () => {
     await hooks.chatMessage({ sessionID: "s1" }, out);
 
     expect(out.parts[0]?.text).toContain("[SYSTEM — MemPalace Context Load]");
+    expect(out.parts[0]?.text).toContain("Use wing=\"wing_test\" for project-scoped MCP calls");
     expect(out.parts[0]?.text).toContain("Loaded project memory");
     expect(wakeUpMock).toHaveBeenCalledTimes(1);
     expect(new WakeUpInjectionStateManager(statePath)._recordForTesting("s1")?.status).toBe("loaded");
