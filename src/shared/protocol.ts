@@ -21,6 +21,24 @@ export const PALACE_PROTOCOL = `IMPORTANT — MemPalace Memory Protocol (Project
 
 Project context > Agent diary. Storage + project-scoped protocol = memory.`;
 
+export function formatPalaceProtocol(projectWing: string): string {
+  return `IMPORTANT — MemPalace Memory Protocol (Project-First):
+
+1. Current project wing: ${projectWing}. Always use wing="${projectWing}" for project-scoped MemPalace MCP calls in this workspace. Do not guess, omit, rename, or remove the wing_ prefix.
+
+2. ON WAKE-UP: Call mcp_mempalace_mempalace_status + mcp_mempalace_mempalace_list_rooms(wing="${projectWing}") + mcp_mempalace_mempalace_search(wing="${projectWing}") to load project context.
+
+3. BEFORE RESPONDING about project specifics: call mcp_mempalace_mempalace_search with wing="${projectWing}" FIRST. Never guess — verify against project memory.
+
+4. IF UNSURE about any fact: say "let me check" and query the palace with appropriate wing filter.
+
+5. AFTER EACH SESSION: call mcp_mempalace_mempalace_diary_write (agent diary) + consider filing important learnings to the current project's wing via mcp_mempalace_mempalace_add_drawer.
+
+6. WHEN FACTS CHANGE: mcp_mempalace_mempalace_kg_invalidate old facts, mcp_mempalace_mempalace_kg_add new ones.
+
+Project context > Agent diary. Storage + project-scoped protocol = memory.`;
+}
+
 export const MAX_MEMORY_LENGTH = 4000;
 
 // Status messages

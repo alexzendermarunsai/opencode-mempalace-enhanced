@@ -24,6 +24,7 @@ export interface HooksContext {
   mempalaceCliOptions?: MempalaceCliOptions;
   ensureInitialized: () => Promise<"ready" | "initializing" | "empty">;
   wakeUpScope: WakeUpScope;
+  projectWing: string;
 }
 
 export interface CreatedHooks {
@@ -41,7 +42,7 @@ export function shouldResetCountAfterAutoSync(result: Awaited<ReturnType<typeof 
 }
 
 export function createHooks(context: HooksContext): CreatedHooks {
-  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, wakeUpInjectionMode, wakeUpInjectionState, mempalaceCliOptions, ensureInitialized, wakeUpScope } = context;
+  const { sessionsSeen, diaryWritten, wing, workspaceDir, stateManager, disableAutoLoad, autoMiningEnabled, sessionSyncConfig, wakeUpInjectionMode, wakeUpInjectionState, mempalaceCliOptions, ensureInitialized, wakeUpScope, projectWing } = context;
   const useCuratedAutoSync = autoMiningEnabled && sessionSyncConfig.enabled && sessionSyncConfig.autoSync;
 
   const scheduleMining = (sessionID: string, resetLegacyCount: boolean): void => {
@@ -114,7 +115,13 @@ export function createHooks(context: HooksContext): CreatedHooks {
           if (memoryText) {
             const firstTextPart = output.parts.find((p) => p.type === "text");
             if (firstTextPart && "text" in firstTextPart) {
-              firstTextPart.text = `[SYSTEM — MemPalace Context Load]\n${memoryText}\n\n${firstTextPart.text}`;
+              firstTextPart.text = `[SYSTEM — MemPalace Context Load]
+[MemPalace Project Wing]
+Use wing="${projectWing}" for project-scoped MCP calls in this workspace.
+
+${memoryText}
+
+${firstTextPart.text}`;
               if (usePersistentWakeUpGuard && injectionStatus) {
                 wakeUpInjectionState.markInjected(input.sessionID, injectionStatus);
               }

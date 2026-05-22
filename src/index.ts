@@ -13,9 +13,10 @@ import { parsePluginOptions, DEFAULT_MCP_COMMAND, resolvePalacePath } from "./co
 import { createHooks } from "./hooks/index.js";
 import { createPluginDispose } from "./features/plugin-dispose.js";
 import { createUpdateNotification } from "./features/update-notification.js";
-import { PALACE_PROTOCOL, MAX_MEMORY_LENGTH, STATUS_MESSAGES } from "./shared/protocol.js";
+import { PALACE_PROTOCOL, MAX_MEMORY_LENGTH, STATUS_MESSAGES, formatPalaceProtocol } from "./shared/protocol.js";
 import { IngestArgsSchema, ingestSessionSync, previewSessionSync, statusSessionSync } from "./session-sync/index.js";
 import { WakeUpInjectionStateManager } from "./shared/wake-up-injection-state.js";
+import { projectWingFor } from "./session-sync/routing.js";
 
 const require = createRequire(import.meta.url);
 const PLUGIN_VERSION: string = require("../package.json").version;
@@ -71,6 +72,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     ...opts.sessionSync,
     palacePath: resolvedPalace.palacePath,
   };
+  const resolvedProjectWing = projectWingFor(sessionSyncConfig, workspaceDir);
   const miningThreshold = sessionSyncConfig.enabled && sessionSyncConfig.autoSync && sessionSyncConfig.autoSyncThreshold
     ? sessionSyncConfig.autoSyncThreshold
     : opts.threshold;
@@ -166,6 +168,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     mempalaceCliOptions,
     ensureInitialized,
     wakeUpScope: opts.wakeUpScope,
+    projectWing: resolvedProjectWing,
   });
 
   return {
@@ -184,7 +187,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
 
     "experimental.chat.system.transform": async (_input, output) => {
       if (!opts.disableProtocol) {
-        output.system.push(PALACE_PROTOCOL);
+        output.system.push(formatPalaceProtocol(resolvedProjectWing));
       }
 
       const updateNotification = createUpdateNotification({ updateResult, PLUGIN_VERSION });
