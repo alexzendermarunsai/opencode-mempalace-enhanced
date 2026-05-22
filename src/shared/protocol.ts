@@ -24,7 +24,7 @@ Project context > Agent diary. Storage + project-scoped protocol = memory.`;
 export function formatPalaceProtocol(projectWing: string): string {
   return `IMPORTANT — MemPalace Memory Protocol (Project-First):
 
-1. Current project wing: ${projectWing}. Always use wing="${projectWing}" for project-scoped MemPalace MCP calls in this workspace. Do not guess, omit, rename, or remove the wing_ prefix.
+1. Current project wing: ${projectWing}. Always use wing="${projectWing}" for project-scoped MemPalace MCP calls in this workspace. Do not guess, omit, or rename it.
 
 2. ON WAKE-UP: Call mcp_mempalace_mempalace_status + mcp_mempalace_mempalace_list_rooms(wing="${projectWing}") + mcp_mempalace_mempalace_search(wing="${projectWing}") to load project context.
 

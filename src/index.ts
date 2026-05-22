@@ -127,7 +127,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     legacyMineSyncEnabled: processExitLegacyMiningEnabled,
     stateManager,
     workspaceDir,
-    wing,
+    wing: resolvedProjectWing,
     mempalaceCliOptions,
   });
 

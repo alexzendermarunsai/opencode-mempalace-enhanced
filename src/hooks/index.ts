@@ -63,7 +63,7 @@ export function createHooks(context: HooksContext): CreatedHooks {
       }
 
       import("../mempalace-cli.js")
-        .then(({ mine }) => mine(workspaceDir, "convos", wing, mempalaceCliOptions))
+        .then(({ mine }) => mine(workspaceDir, "convos", projectWing, mempalaceCliOptions))
         .catch(() => {})
         .finally(() => {
           stateManager.releaseMiningLock(sessionID);
@@ -103,7 +103,7 @@ export function createHooks(context: HooksContext): CreatedHooks {
             memoryText = STATUS_MESSAGES.initializing;
             injectionStatus = "initializing";
           } else if (state === "ready") {
-            const memory = await wakeUp(wing, mempalaceCliOptions);
+            const memory = await wakeUp(projectWing, mempalaceCliOptions);
             if (memory) {
               memoryText = memory.length > MAX_MEMORY_LENGTH
                 ? memory.substring(0, MAX_MEMORY_LENGTH) + "\n...[Memory Truncated]"
@@ -172,13 +172,13 @@ ${firstTextPart.text}`;
       }
 
       // state === "ready" - load memory via wakeUp
-      const memory = await wakeUp(wing, mempalaceCliOptions);
+      const memory = await wakeUp(projectWing, mempalaceCliOptions);
       if (memory) {
         const truncatedMemory =
           memory.length > MAX_MEMORY_LENGTH
             ? memory.substring(0, MAX_MEMORY_LENGTH) + "\n...[Memory Truncated]"
             : memory;
-        output.context.push(truncatedMemory);
+        output.context.push(`[MemPalace Project Wing]\nUse wing="${projectWing}" for project-scoped MCP calls in this workspace.\n\n${truncatedMemory}`);
       }
     },
 
