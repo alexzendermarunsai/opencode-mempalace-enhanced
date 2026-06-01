@@ -50,6 +50,10 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     logWarn("Invalid workspace path, using current directory");
     workspaceDir = process.cwd();
   }
+  if (workspaceDir === "/") {
+    logWarn("Workspace resolved to root, falling back to current directory");
+    workspaceDir = process.cwd();
+  }
   
   let wing = getWingFromPath(workspaceDir);
   if (wing.length > 100) {
