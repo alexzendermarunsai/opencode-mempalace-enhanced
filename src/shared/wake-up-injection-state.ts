@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 export type WakeUpInjectionMode = "once-per-session" | "once-per-process";
-export type WakeUpInjectionStatus = "loaded" | "empty" | "initializing";
+export type WakeUpInjectionStatus = "loaded" | "empty" | "initializing" | "null-result";
 
 export type WakeUpInjectionRecord = {
   status: WakeUpInjectionStatus;
@@ -53,14 +53,14 @@ export function saveWakeUpInjectionState(state: WakeUpInjectionState, statePath 
 }
 
 export function shouldSuppressWakeUpInjection(record: WakeUpInjectionRecord | undefined): boolean {
-  return record?.status === "loaded" || record?.status === "empty";
+  return record?.status === "loaded" || record?.status === "empty" || record?.status === "null-result";
 }
 
 export function pruneWakeUpInjectionState(state: WakeUpInjectionState, now = Date.now()): WakeUpInjectionState {
   const entries = Object.entries(state.sessions)
     .filter(([, record]) => {
       if (!record || typeof record.injectedAt !== "string") return false;
-      if (record.status !== "loaded" && record.status !== "empty" && record.status !== "initializing") return false;
+      if (record.status !== "loaded" && record.status !== "empty" && record.status !== "initializing" && record.status !== "null-result") return false;
       const injectedTime = Date.parse(record.injectedAt);
       if (!Number.isFinite(injectedTime)) return false;
       return now - injectedTime <= MAX_RECORD_AGE_MS;

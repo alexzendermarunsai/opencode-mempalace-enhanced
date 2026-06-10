@@ -159,6 +159,39 @@ describe("chat.message wake-up injection guard", () => {
     expect(new WakeUpInjectionStateManager(statePath)._recordForTesting("s1")?.status).toBe("loaded");
   });
 
+  it("persists null-result guard when wakeUp returns null and suppresses on restart", async () => {
+    wakeUpMock.mockImplementation(async () => null);
+    const first = output("First");
+    await makeHooks("ready").chatMessage({ sessionID: "s1" }, first);
+
+    // No visible injection, but guard should be persisted
+    expect(first.parts[0]?.text).toBe("First");
+    expect(new WakeUpInjectionStateManager(statePath)._recordForTesting("s1")?.status).toBe("null-result");
+
+    // Simulate restart — wakeUp now works
+    clearMock(wakeUpMock);
+    wakeUpMock.mockImplementation(async () => "Loaded project memory");
+    const afterRestart = output("After restart");
+    await makeHooks("ready").chatMessage({ sessionID: "s1" }, afterRestart);
+
+    // Should NOT re-inject — null-result guard prevents it
+    expect(afterRestart.parts[0]?.text).toBe("After restart");
+    expect(wakeUpMock).not.toHaveBeenCalled();
+  });
+
+  it("does not re-attempt wakeUp on restart when null-result guard exists and wakeUp still returns null", async () => {
+    wakeUpMock.mockImplementation(async () => null);
+    await makeHooks("ready").chatMessage({ sessionID: "s1" }, output("First"));
+    clearMock(wakeUpMock);
+    wakeUpMock.mockImplementation(async () => null);
+
+    const afterRestart = output("After restart");
+    await makeHooks("ready").chatMessage({ sessionID: "s1" }, afterRestart);
+
+    expect(afterRestart.parts[0]?.text).toBe("After restart");
+    expect(wakeUpMock).not.toHaveBeenCalled();
+  });
+
   it("missing or corrupt persistent state does not crash injection", async () => {
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
     fs.writeFileSync(statePath, "not json");

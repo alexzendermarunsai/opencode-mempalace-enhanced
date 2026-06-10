@@ -109,6 +109,8 @@ export function createHooks(context: HooksContext): CreatedHooks {
                 ? memory.substring(0, MAX_MEMORY_LENGTH) + "\n...[Memory Truncated]"
                 : memory;
               injectionStatus = "loaded";
+            } else {
+              injectionStatus = "null-result";
             }
           }
 
@@ -122,10 +124,11 @@ Use wing="${projectWing}" for project-scoped MCP calls in this workspace.
 ${memoryText}
 
 ${firstTextPart.text}`;
-              if (usePersistentWakeUpGuard && injectionStatus) {
-                wakeUpInjectionState.markInjected(input.sessionID, injectionStatus);
-              }
             }
+          }
+
+          if (usePersistentWakeUpGuard && injectionStatus) {
+            wakeUpInjectionState.markInjected(input.sessionID, injectionStatus);
           }
         }
       }
