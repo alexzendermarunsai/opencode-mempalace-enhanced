@@ -25,6 +25,7 @@ export interface HooksContext {
   ensureInitialized: () => Promise<"ready" | "initializing" | "empty">;
   wakeUpScope: WakeUpScope;
   projectWing: string;
+  client: PluginInput["client"];
 }
 
 export interface CreatedHooks {
@@ -91,6 +92,23 @@ export function createHooks(context: HooksContext): CreatedHooks {
           sessionsSeen.add(input.sessionID);
         } else {
           sessionsSeen.add(input.sessionID);
+
+          // Detect reopened session: if messages exist, this session was used before
+          try {
+            const messagesResult = await context.client.session.messages({
+              path: { id: input.sessionID },
+              query: { limit: 1 },
+            });
+            if (messagesResult.data && messagesResult.data.length > 0) {
+              log("Skipping wake-up injection: reopened session with existing messages", { sessionID: input.sessionID });
+              if (usePersistentWakeUpGuard) {
+                wakeUpInjectionState.markInjected(input.sessionID, "loaded");
+              }
+              return;
+            }
+          } catch {
+            // If query fails, fall through to normal injection behavior
+          }
 
           const state = await ensureInitialized();
           let memoryText = "";

@@ -173,6 +173,7 @@ const mempalacePlugin: Plugin = async (input: PluginInput, options?: PluginOptio
     ensureInitialized,
     wakeUpScope: opts.wakeUpScope,
     projectWing: resolvedProjectWing,
+    client: input.client,
   });
 
   return {

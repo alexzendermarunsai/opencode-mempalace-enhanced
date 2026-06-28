@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { PluginInput } from "@opencode-ai/plugin";
 
 const wakeUpMock = mock(async () => "Loaded project memory");
 
@@ -45,7 +46,15 @@ describe("chat.message wake-up injection guard", () => {
     _resetSessionKindForTesting();
   });
 
-  function makeHooks(initState: InitState = "ready", mode: WakeUpInjectionMode = "once-per-session", scope: WakeUpScope = "primary-session") {
+  function makeClient(messages: Array<{ info: unknown; parts: unknown[] }> = []) {
+    return {
+      session: {
+        messages: mock(async () => ({ data: messages })),
+      },
+    } as unknown as PluginInput["client"];
+  }
+
+  function makeHooks(initState: InitState = "ready", mode: WakeUpInjectionMode = "once-per-session", scope: WakeUpScope = "primary-session", client?: PluginInput["client"]) {
     return createHooks({
       sessionsSeen: new Set(),
       diaryWritten: new Set(),
@@ -60,6 +69,7 @@ describe("chat.message wake-up injection guard", () => {
       ensureInitialized: async () => initState,
       wakeUpScope: scope,
       projectWing: "wing_test",
+      client: client ?? makeClient(),
     });
   }
 
@@ -201,5 +211,53 @@ describe("chat.message wake-up injection guard", () => {
 
     expect(out.parts[0]?.text).toContain("[SYSTEM — MemPalace Context Load]");
     expect(wakeUpMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips injection for reopened session with existing messages", async () => {
+    const client = makeClient([{ info: {}, parts: [] }]);
+    const out = output("Hello after restart");
+    await makeHooks("ready", "once-per-session", "primary-session", client).chatMessage({ sessionID: "s1" }, out);
+
+    expect(out.parts[0]?.text).toBe("Hello after restart");
+    expect(wakeUpMock).not.toHaveBeenCalled();
+    expect(new WakeUpInjectionStateManager(statePath)._recordForTesting("s1")?.status).toBe("loaded");
+  });
+
+  it("injects for new session with empty messages", async () => {
+    const client = makeClient([]);
+    const out = output("Hello");
+    await makeHooks("ready", "once-per-session", "primary-session", client).chatMessage({ sessionID: "s1" }, out);
+
+    expect(out.parts[0]?.text).toContain("[SYSTEM — MemPalace Context Load]");
+    expect(wakeUpMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls through to injection when client query fails", async () => {
+    const failingClient = {
+      session: {
+        messages: mock(async () => { throw new Error("network error"); }),
+      },
+    } as unknown as PluginInput["client"];
+    const out = output("Hello");
+    await makeHooks("ready", "once-per-session", "primary-session", failingClient).chatMessage({ sessionID: "s1" }, out);
+
+    expect(out.parts[0]?.text).toContain("[SYSTEM — MemPalace Context Load]");
+    expect(wakeUpMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips injection for reopened session even when prior status was initializing", async () => {
+    // First injection was "initializing" — guard allows retry
+    await makeHooks("initializing").chatMessage({ sessionID: "s1" }, output("First"));
+    expect(new WakeUpInjectionStateManager(statePath)._recordForTesting("s1")?.status).toBe("initializing");
+    clearMock(wakeUpMock);
+
+    // On restart, session has existing messages — should skip despite "initializing" status
+    const client = makeClient([{ info: {}, parts: [] }]);
+    const afterRestart = output("After restart");
+    await makeHooks("ready", "once-per-session", "primary-session", client).chatMessage({ sessionID: "s1" }, afterRestart);
+
+    expect(afterRestart.parts[0]?.text).toBe("After restart");
+    expect(wakeUpMock).not.toHaveBeenCalled();
+    expect(new WakeUpInjectionStateManager(statePath)._recordForTesting("s1")?.status).toBe("loaded");
   });
 });
